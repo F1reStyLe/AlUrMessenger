@@ -1,0 +1,33 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Credentials
+.env
+.env.local
+.env.*.local
+credentials.json
+secrets.yaml
+config.yaml
+
+# Logs
+*.log
+
+# Test cover
+coverage.txt
+coverage.html
+profile.out
+/testdata/*.out
+
+# Debug
+/__debug_bin
+
+/build/
+/dist/
+/output/
+
+*.tar.gz
+Dockerfile-dev
