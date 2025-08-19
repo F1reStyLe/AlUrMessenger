@@ -12,6 +12,7 @@
 credentials.json
 secrets.yaml
 config.yaml
+local.yaml
 
 # Logs
 *.log
