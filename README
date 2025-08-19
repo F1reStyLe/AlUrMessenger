@@ -1,0 +1,2 @@
+Заполнить файл src\internal\config\local.yaml
+Для формирования .env запустить комманду .\parser.ps1 в папке docker
