@@ -23,8 +23,11 @@ coverage.html
 profile.out
 /testdata/*.out
 
+#DB
+*postgres_data
+
 # Debug
-/__debug_bin
+*__debug_bin*
 
 /build/
 /dist/

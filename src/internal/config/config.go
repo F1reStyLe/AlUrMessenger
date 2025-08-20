@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -28,7 +29,7 @@ type DatabaseConfig struct {
 	Port     string `yaml:"port" env-default:"6532"`
 	Name     string `yaml:"name" env-default:"messenger"`
 	User     string `yaml:"user" env-default:"postgres"`
-	Password string `yaml:"password" env-required:"true"` // Обязательный параметр
+	Password string `yaml:"password"` // Обязательный параметр
 	SSLMode  string `yaml:"ssl_mode" env-default:"disable"`
 	// Максимальное количество открытых соединений с БД
 	MaxOpenConns int `yaml:"max_open_conns" env-default:"25"`
@@ -36,7 +37,7 @@ type DatabaseConfig struct {
 }
 
 type JWTConfig struct {
-	SecretKey       string        `yaml:"secret_key" env-required:"true"` // Обязательный параметр
+	SecretKey       string        `yaml:"secret_key"` // Обязательный параметр
 	AccessTokenTTL  time.Duration `yaml:"access_token_ttl" env-default:"3h"`
 	RefreshTokenTTL time.Duration `yaml:"refresh_token_ttl" env-default:"720h"` // 30 дней
 }
@@ -61,27 +62,34 @@ func MustLoad() *Config {
 
 // MustLoadPath загружает конфигурацию по конкретному пути
 func MustLoadPath(configPath string) *Config {
-	// Проверяем существование файла конфигурации
+	// Проверяем, что файл существует
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		panic("config file does not exist: " + configPath)
+		panic(fmt.Sprintf("config file does not exist: %s", configPath))
+	} else if err != nil {
+		panic(fmt.Sprintf("error accessing config file: %v", err))
 	}
 
 	var cfg Config
 
-	// Читаем конфиг файл с помощью Viper
+	// Настройка Viper
 	viper.SetConfigFile(configPath)
+
+	// Опционально: можно указать тип (если путь без расширения)
+	viper.SetConfigType("yaml")
+
+	// Читаем конфиг
 	if err := viper.ReadInConfig(); err != nil {
-		panic("failed to read config file: " + err.Error())
+		panic(fmt.Sprintf("failed to read config file: %v", err))
 	}
 
-	// Преобразуем прочитанные данные в структуру
+	// Десериализуем в структуру
 	if err := viper.Unmarshal(&cfg); err != nil {
-		panic("failed to unmarshal config: " + err.Error())
+		panic(fmt.Sprintf("failed to unmarshal config: %v", err))
 	}
 
-	// Валидируем конфигурацию с помощью cleanenv
+	// Загружаем переменные окружения (и переопределяем ими значения из YAML)
 	if err := cleanenv.ReadEnv(&cfg); err != nil {
-		panic("failed to read env: " + err.Error())
+		panic(fmt.Sprintf("failed to read env vars: %v", err))
 	}
 
 	return &cfg
@@ -106,8 +114,15 @@ func fetchConfigPath() string {
 
 	// Если env переменная не установлена, используем дефолтный путь
 	if res == "" {
-		res = "config/local.yaml" // Дефолтный путь относительно места запуска
+		res = "../../internal/config/local.yaml" // Дефолтный путь относительно места запуска
 	}
 
 	return res
+}
+
+func (d *DatabaseConfig) GetDBConnectionString() string {
+	return fmt.Sprintf(
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+		d.Host, d.Port, d.User, d.Password, d.Name, d.SSLMode,
+	)
 }
