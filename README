@@ -1,2 +1,5 @@
 Заполнить файл src\internal\config\local.yaml
 Для формирования .env запустить комманду .\parser.ps1 в папке docker
+
+Запустить (заменить все переменные в {}) из корня migrate -path src/migrations -database "postgres://{user}:{password}@localhost:{port}/{dbname}?sslmode=disable" up
+windows не даёт реализовать нормально автомиграцию

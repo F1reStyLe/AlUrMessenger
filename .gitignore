@@ -24,7 +24,7 @@ profile.out
 /testdata/*.out
 
 # Debug
-/__debug_bin
+*__debug_bin*
 
 /build/
 /dist/
