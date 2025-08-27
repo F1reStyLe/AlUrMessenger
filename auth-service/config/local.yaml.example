@@ -1,0 +1,26 @@
+environment: "local"
+
+http:
+  host: "localhost"
+  port: ""
+  read_timeout: "10s"
+
+database:
+  host: ""
+  dbport: ""
+  name: ""
+  user: ""
+  password: "" # Замените на реальный пароль
+  ssl_mode: "disable"
+  max_open_conns: 25
+  max_idle_conns: 25
+
+jwt:
+  secret_key: "" # Замените на случайную строку
+  access_token_ttl: "3h"
+  refresh_token_ttl: "720h" # 30 дней
+
+websocket:
+  read_buffer_size: 1024
+  write_buffer_size: 1024
+  ping_period: "60s"

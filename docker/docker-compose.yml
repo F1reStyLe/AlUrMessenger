@@ -18,6 +18,18 @@ services:
       timeout: 5s
       retries: 5
 
+  auth-service:
+     build:
+      context: ../auth-service
+     ports:
+      - "8085:8085"
+     container_name: auth
+     restart: always
+     networks:
+      - messenger-network
+     depends_on:
+      - postgres
+
 volumes:
   postgres_data:
 
