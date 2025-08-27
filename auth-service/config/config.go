@@ -22,8 +22,8 @@ type HttpConfig struct {
 }
 
 type DatabaseConfig struct {
-	Host     string `yaml:"host" env-default:"localhost"`
-	Port     string `yaml:"port" env-default:"6532"`
+	Host     string `yaml:"host" env-default:"postgres"`
+	Port     string `yaml:"dbport" env-default:"5432"`
 	Name     string `yaml:"name" env-default:"messenger"`
 	User     string `yaml:"user" env-default:"postgres"`
 	Password string `yaml:"password"` // Обязательный параметр
