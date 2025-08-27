@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     name VARCHAR(50) UNIQUE NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     last_seen_at TIMESTAMPTZ,
@@ -12,11 +12,11 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- Индексы для быстрого поиска по email и name
-CREATE INDEX idx_user_email ON users (email);
-CREATE INDEX idx_user_name ON users (name);
+CREATE INDEX IF NOT EXISTS idx_user_email ON users (email);
+CREATE INDEX IF NOT EXISTS idx_user_name ON users (name);
 
-CREATE TABLE refresh_tokens (
-    user_id NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     token_hash TEXT NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL
 );

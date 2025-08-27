@@ -66,7 +66,7 @@ func main() {
 	r.HandleFunc("/register", authHandler.Register).Methods("POST")
 	r.HandleFunc("/login", authHandler.Login).Methods("POST")
 	r.HandleFunc("/logout", authHandler.Logout).Methods("POST")
-	r.HandleFunc("/me", authHandler.WhoAmI).Methods("GET")
+	r.HandleFunc("/me", authHandler.AuthMiddleware(authHandler.WhoAmI)).Methods("GET")
 	r.HandleFunc("/refresh", authHandler.Refresh).Methods("POST")
 
 	// Запуск сервера

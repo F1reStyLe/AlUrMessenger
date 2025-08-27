@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/alexedwards/argon2id"
 	"github.com/golang-jwt/jwt/v4"
-	"golang.org/x/crypto/bcrypt"
 )
 
 type JWTClaims struct {
@@ -46,8 +46,9 @@ func (s *AuthService) Authenticate(username string, email string, password strin
 	}
 
 	// Проверяем пароль
-	err = bcrypt.CompareHashAndPassword([]byte(user.HashedPassword), []byte(password))
-	if err != nil {
+	ok, err := argon2id.ComparePasswordAndHash(password, user.HashedPassword)
+
+	if !ok || err != nil {
 		return nil, fmt.Errorf("invalid credentials")
 	}
 
@@ -70,12 +71,14 @@ func (s *AuthService) GenerateTokens(ctx context.Context, user *domain.User) (*d
 		return nil, err
 	}
 
-	refreshToken, err := s.generateRefreshToken(user.Username, user.ID)
+	timeExpired := jwt.NewNumericDate(time.Now().Add(s.refreshTokenTTL))
+
+	refreshToken, err := s.generateRefreshToken(user.Username, user.ID, timeExpired)
 	if err != nil {
 		return nil, err
 	}
 
-	err = s.tokenRepo.Save(ctx, user.ID, refreshToken)
+	err = s.tokenRepo.Save(ctx, user.ID, refreshToken, timeExpired)
 	if err != nil {
 		return nil, err
 	}
@@ -91,18 +94,12 @@ func (s *AuthService) GenerateTokens(ctx context.Context, user *domain.User) (*d
 func (s *AuthService) Register(user *domain.User) error {
 	ctx := context.Background()
 
-	// Проверяем, существует ли пользователь
 	err := s.userRepo.CreateUser(ctx, user)
 	if err != nil {
 		return fmt.Errorf("error to create user %s", err)
 	}
 
 	return nil
-}
-
-func (s *AuthService) SaveToken(userid, token string) error {
-	ctx := context.Background()
-	return s.tokenRepo.Save(ctx, userid, token)
 }
 
 func (s *AuthService) RevokeToken(token string) error {
@@ -128,12 +125,12 @@ func (s *AuthService) generateToken(userid string, username string, permissions 
 	return token.SignedString(s.jwtSecret)
 }
 
-func (s *AuthService) generateRefreshToken(username, userid string) (string, error) {
+func (s *AuthService) generateRefreshToken(username, userid string, timeExpired *jwt.NumericDate) (string, error) {
 	claims := &JWTClaims{
 		Userid:   userid,
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.refreshTokenTTL)),
+			ExpiresAt: timeExpired,
 			Subject:   "refresh", // можно добавить тип
 		},
 	}

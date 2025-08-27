@@ -4,12 +4,13 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/alexedwards/argon2id"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/jmoiron/sqlx"
-	"golang.org/x/crypto/bcrypt"
 )
 
 type TokenRepository interface {
-	Save(ctx context.Context, userid string, token string) error
+	Save(ctx context.Context, userid string, token string, expiration *jwt.NumericDate) error
 	Revoke(ctx context.Context, token string) error
 	Validate(ctx context.Context, token string) (string, error)
 }
@@ -22,12 +23,12 @@ func NewPostgresTokenRepository(db *sqlx.DB) *PostgresTokenRepository {
 	return &PostgresTokenRepository{db: db}
 }
 
-func (r *PostgresTokenRepository) Save(ctx context.Context, userid string, token string) error {
+func (r *PostgresTokenRepository) Save(ctx context.Context, userid string, token string, expiration *jwt.NumericDate) error {
 	if len(token) == 0 {
 		return fmt.Errorf("token is empty")
 	}
 
-	hashedtoken, err := bcrypt.GenerateFromPassword([]byte(token), bcrypt.DefaultCost)
+	hashedtoken, err := argon2id.CreateHash(token, argon2id.DefaultParams)
 
 	if err != nil {
 		return fmt.Errorf("failed to hash token: %v", err)
@@ -37,7 +38,7 @@ func (r *PostgresTokenRepository) Save(ctx context.Context, userid string, token
 		return fmt.Errorf("hashed token is empty")
 	}
 
-	_, err = r.db.ExecContext(ctx, "INSERT INTO refresh_tokens (user_id, token_hash) VALUES ($1, $2)", userid, hashedtoken)
+	_, err = r.db.ExecContext(ctx, "INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)", userid, hashedtoken, expiration.Time)
 
 	if err != nil {
 		return fmt.Errorf("failed to save token: %v", err)
@@ -63,7 +64,9 @@ func (r *PostgresTokenRepository) Validate(ctx context.Context, token string) (s
 		return "", err
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(token)); err != nil {
+	ok, err := argon2id.ComparePasswordAndHash(token, storedHash)
+
+	if !ok || err != nil {
 		return "", fmt.Errorf("invalid token")
 	}
 
