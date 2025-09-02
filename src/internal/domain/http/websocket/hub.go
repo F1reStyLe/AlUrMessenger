@@ -171,19 +171,6 @@ func (c *Client) SendMessage(message []byte) error {
 	return c.conn.Write(ctx, websocket.MessageText, message)
 }
 
-// Middleware для проверки аутентификации WebSocket соединения
-func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		token := r.URL.Query().Get("token")
-		if token == "" {
-			http.Error(w, "Authentication required", http.StatusUnauthorized)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	}
-}
-
 // GracefulShutdown плавное завершение работы WebSocket сервера
 func (h *Hub) GracefulShutdown() {
 	h.mu.Lock()
