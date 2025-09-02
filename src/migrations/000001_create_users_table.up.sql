@@ -1,26 +1,30 @@
--- Таблица пользователей
-CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(50) UNIQUE NOT NULL,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
+--+migrate Up
+-- Таблица активности пользователей
+CREATE TABLE users (
+    id int PRIMARY KEY,
+    user_id int UNIQUE NOT NULL,
+    username VARCHAR(30) UNIQUE NOT NULL,
     last_seen_at TIMESTAMPTZ,
     is_online BOOLEAN DEFAULT FALSE
-);
+)
 
--- Индексы для быстрого поиска по email и name
-CREATE INDEX idx_user_email ON users (email);
-CREATE INDEX idx_user_name ON users (name);
+CREATE INDEX idx_users_user_id ON users(user_id);
+
+CREATE TABLE IF NOT EXISTS chat_types (
+    id int PRIMARY KEY,
+    name VARCHAR(20) UNIQUE NOT NULL
+)
 
 -- Таблица чатов
 CREATE TABLE IF NOT EXISTS chats (
     id SERIAL PRIMARY KEY,
-    type VARCHAR(10) NOT NULL CHECK (type IN ('direct', 'group')),
+    type int NOT NULL REFERENCES chat_types(id) ON DELETE CASCADE,
     name VARCHAR(100),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Индексы для чатов
+CREATE INDEX idx_chat_type ON chats(type);
 
 -- Участники чатов
 CREATE TABLE IF NOT EXISTS chat_members (
@@ -48,3 +52,9 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX idx_message_chat_id ON messages(chat_id);
 CREATE INDEX idx_message_user_id ON messages(user_id);
 CREATE INDEX idx_message_created_at ON messages(created_at);
+
+-- +migrate Down
+DROP TABLE IF EXISTS user_activities;
+DROP TABLE IF EXISTS chats;
+DROP TABLE IF EXISTS chat_members;
+DROP TABLE IF EXISTS messages;

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -8,14 +9,13 @@ import (
 	"syscall"
 	"time"
 
+	"alurmsg/internal/auth"
 	"alurmsg/internal/config"
 	"alurmsg/internal/domain/http/websocket"
 	"alurmsg/pkg/database"
 
-	"github.com/jmoiron/sqlx"
-
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
-	_ "github.com/golang-migrate/migrate/v4/source/file" // ← Регистрирует file:// драйвер!
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
 func main() {
@@ -33,15 +33,12 @@ func main() {
 	defer db.Close()
 	logger.Info("✅ Database connected")
 
-	// Инициализация зависимостей (пока заглушки)
-	initServices(db, cfg, logger)
-
 	// Инициализация WebSocket хаба
 	wsHub := websocket.New()
 	wsHub.Start()
 
 	// Настройка HTTP маршрутов
-	http.HandleFunc("/ws", websocket.AuthMiddleware(websocket.HandleWebSocket))
+	http.HandleFunc("/ws", auth.AuthMiddleware([]byte(cfg.JWT.SecretKey))(websocket.HandleWebSocket))
 	http.HandleFunc("/health", healthCheckHandler)
 
 	// Graceful shutdown
@@ -56,10 +53,11 @@ func main() {
 		os.Exit(0)
 	}()
 
+	port := fmt.Sprintf(":%s", cfg.HTTP.Port)
 	// Запуск сервера
-	logger.Info("Server starting on :8080")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
-		logger.Info("Server failed to start: %v", err)
+	logger.Info(fmt.Sprintf("Server starting on %s", port))
+	if err := http.ListenAndServe(port, nil); err != nil {
+		logger.Info("Server failed to start")
 	}
 
 	// Graceful shutdown
@@ -95,32 +93,6 @@ func setupLogger(cfg *config.Config) *slog.Logger {
 	}
 
 	return slog.New(handler)
-}
-
-func initServices(db *sqlx.DB, cfg *config.Config, logger *slog.Logger) {
-	logger.Info("📋 Initializing services...")
-
-	// Здесь будет инициализация репозиториев и сервисов
-	// Пока просто логируем конфиг
-	logger.Debug("Configuration",
-		"environment", cfg.Environment,
-		"http_host", cfg.HTTP.Host,
-		"http_port", cfg.HTTP.Port,
-		"db_host", cfg.Database.Host,
-	)
-
-	// TODO: Инициализация репозиториев
-	// repos := repository.NewRepository(db, logger)
-
-	// TODO: Инициализация сервисов
-	// services := service.NewService(service.Deps{
-	//     Repos:          repos,
-	//     Logger:         logger,
-	//     JWTSecret:      cfg.JWT.SecretKey,
-	//     AccessTokenTTL: cfg.JWT.AccessTokenTTL,
-	// })
-
-	logger.Info("✅ Services initialized")
 }
 
 func waitForShutdown(logger *slog.Logger) {

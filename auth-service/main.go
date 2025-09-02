@@ -6,7 +6,6 @@ import (
 	"auth/database"
 	"auth/handlers"
 	"auth/repository"
-	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,16 +15,8 @@ import (
 	migrate "github.com/rubenv/sql-migrate"
 )
 
-var (
-	jwtKey []byte
-	db     *sql.DB
-)
-
 func main() {
 	cfg := config.MustLoad()
-
-	jwtKey = []byte(cfg.JWT.SecretKey)
-
 	// Подключение к БД
 	var err error
 	db, err := database.NewPostgresConnection(cfg.Database)
