@@ -12,6 +12,8 @@ import (
 	"alurmsg/internal/auth"
 	"alurmsg/internal/config"
 	"alurmsg/internal/domain/http/websocket"
+	"alurmsg/internal/repository"
+	"alurmsg/internal/repository/postgres"
 	"alurmsg/pkg/database"
 
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -33,9 +35,13 @@ func main() {
 	defer db.Close()
 	logger.Info("✅ Database connected")
 
+	var mainRepo = &repository.MainRepository{
+		MessageRepository: postgres.NewPostgresMessageRepository(db),
+	}
+
 	// Инициализация WebSocket хаба
 	wsHub := websocket.New()
-	wsHub.Start()
+	wsHub.Start(mainRepo)
 
 	// Настройка HTTP маршрутов
 	http.HandleFunc("/ws", auth.AuthMiddleware([]byte(cfg.JWT.SecretKey))(websocket.HandleWebSocket))

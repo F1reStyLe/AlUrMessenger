@@ -1,7 +1,11 @@
 package websocket
 
 import (
+	"alurmsg/internal/domain"
+	"alurmsg/internal/repository"
 	"context"
+	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -25,7 +29,10 @@ type Hub struct {
 	broadcast  chan []byte
 	register   chan *Client
 	unregister chan *Client
-	mu         sync.RWMutex
+
+	msgRepo *repository.MainRepository
+
+	mu sync.RWMutex
 }
 
 var hub = &Hub{
@@ -77,23 +84,67 @@ func (c *Client) readPump() {
 	}()
 
 	for {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*10)
-
-		messageType, message, err := c.conn.Read(ctx)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*1)
+		_, data, err := c.conn.Read(ctx)
 		cancel()
 
 		if err != nil {
-			if websocket.CloseStatus(err) == websocket.StatusNormalClosure {
-				log.Printf("Client disconnected normally")
-			} else {
+			if websocket.CloseStatus(err) != websocket.StatusNormalClosure {
 				log.Printf("Read error: %v", err)
 			}
 			break
 		}
 
-		if messageType == websocket.MessageText {
-			log.Printf("Received message: %s", string(message))
-			hub.broadcast <- message
+		// Парсим входящее сообщение
+		var msg Message
+		if err := json.Unmarshal(data, &msg); err != nil {
+			log.Printf("Invalid JSON: %v", err)
+			continue
+		}
+
+		msg.Timestamp = time.Now()
+
+		switch msg.Type {
+		case MessageTypeChat:
+			var payload ChatPayload
+			if err := mapToStruct(msg.Payload, &payload); err != nil {
+				log.Printf("Invalid chat payload: %v", err)
+				continue
+			}
+			msg.Payload = payload
+			message := &domain.Message{
+				UserID:    payload.User,
+				ChatID:    payload.Chat,
+				Text:      payload.Text,
+				CreatedAt: msg.Timestamp,
+			}
+			msg.ID, err = hub.msgRepo.MessageRepository.SaveMessage(context.Background(), message)
+
+			if err != nil {
+				msg.Error = fmt.Sprintf("error saving message: %v", err)
+			}
+			hub.broadcast <- mustMarshal(msg)
+
+		case MessageTypeLike:
+			var payload LikePayload
+			if err := mapToStruct(msg.Payload, &payload); err != nil {
+				log.Printf("Invalid like payload: %v", err)
+				continue
+			}
+			msg.Payload = payload
+			hub.broadcast <- mustMarshal(msg)
+
+		case MessageTypeComment:
+			var payload CommentPayload
+			if err := mapToStruct(msg.Payload, &payload); err != nil {
+				log.Printf("Invalid comment payload: %v", err)
+				continue
+			}
+			msg.Payload = payload
+			hub.broadcast <- mustMarshal(msg)
+
+		default:
+			log.Printf("Unknown message type: %s", msg.Type)
 		}
 	}
 }
@@ -101,7 +152,6 @@ func (c *Client) readPump() {
 func (c *Client) writePump() {
 	defer c.conn.Close(websocket.StatusInternalError, "writePump exited")
 
-	// Используем for range для итерации по каналу
 	for message := range c.send {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 		err := c.conn.Write(ctx, websocket.MessageText, message)
@@ -112,9 +162,6 @@ func (c *Client) writePump() {
 			return
 		}
 	}
-
-	// Канал закрыт, отправляем сообщение о закрытии
-	c.conn.Write(context.Background(), websocket.MessageText, []byte{})
 }
 
 func HandleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -146,7 +193,8 @@ func New() *Hub {
 }
 
 // Start запускает WebSocket хаб
-func (h *Hub) Start() {
+func (h *Hub) Start(repo *repository.MainRepository) {
+	h.msgRepo = repo
 	go h.Run()
 	log.Println("WebSocket hub started")
 }
