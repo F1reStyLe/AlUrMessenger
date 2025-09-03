@@ -114,7 +114,7 @@ func fetchConfigPath() string {
 
 	// Если env переменная не установлена, используем дефолтный путь
 	if res == "" {
-		res = "../../internal/config/local.yaml" // Дефолтный путь относительно места запуска
+		res = "internal/config/local.yaml" // Дефолтный путь относительно места запуска
 	}
 
 	return res

@@ -4,8 +4,8 @@ import "time"
 
 type Message struct {
 	ID        int       `json:"id"`
-	Chat      Chat      `json:"chat"`
-	User      User      `json:"user"`
+	ChatID    int       `json:"chatid"`
+	UserID    int       `json:"userid"`
 	Text      string    `json:"text"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
