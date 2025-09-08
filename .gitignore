@@ -24,7 +24,7 @@ profile.out
 /testdata/*.out
 
 #DB
-*postgres_data
+*postgres_data*
 
 # Debug
 *__debug_bin*

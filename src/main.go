@@ -12,12 +12,14 @@ import (
 	"alurmsg/internal/auth"
 	"alurmsg/internal/config"
 	"alurmsg/internal/domain/http/websocket"
+	rest "alurmsg/internal/http"
 	"alurmsg/internal/repository"
 	"alurmsg/internal/repository/postgres"
 	"alurmsg/pkg/database"
 
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	migrate "github.com/rubenv/sql-migrate"
 )
 
 func main() {
@@ -35,6 +37,18 @@ func main() {
 	defer db.Close()
 	logger.Info("✅ Database connected")
 
+	migrations := &migrate.FileMigrationSource{
+		Dir: "migrations",
+	}
+
+	n, err := migrate.Exec(db.DB, "postgres", migrations, migrate.Up)
+	if err != nil {
+		logger.Info("Failed to apply migrations:", "error", err)
+	}
+	logger.Info("Applied migrations!", "count", n)
+
+	_, _ = db.Exec("SET search_path TO msg")
+
 	var mainRepo = &repository.MainRepository{
 		MessageRepository: postgres.NewPostgresMessageRepository(db),
 	}
@@ -43,6 +57,7 @@ func main() {
 	wsHub := websocket.New()
 	wsHub.Start(mainRepo)
 
+	rest.RegisterHandlers(http.DefaultServeMux, cfg, db, auth.AuthMiddleware([]byte(cfg.JWT.SecretKey)))
 	// Настройка HTTP маршрутов
 	http.HandleFunc("/ws", auth.AuthMiddleware([]byte(cfg.JWT.SecretKey))(websocket.HandleWebSocket))
 	http.HandleFunc("/health", healthCheckHandler)
