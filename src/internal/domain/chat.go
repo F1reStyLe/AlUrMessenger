@@ -10,9 +10,8 @@ const (
 )
 
 type Chat struct {
-	ID        int       `json:"id"`
+	ID        int       `json:"id,omitempty"`
 	Type      ChatType  `json:"type"`
-	Name      *string   `json:"name,omitempty"`
+	Name      string    `json:"name,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
-	Members   []User    `json:"members"`
 }

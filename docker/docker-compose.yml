@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: messenger-db
+    container_name: auth-db
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
@@ -9,7 +9,7 @@ services:
     ports:
       - "${DB_PORT}:5432"
     volumes:
-      - ./postgres_data:/var/lib/postgresql/data
+      - ./postgres_data_auth:/var/lib/postgresql/data
     networks:
       - messenger-network
     healthcheck:
@@ -17,7 +17,24 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-
+  postgesmsg:
+    image: postgres:15-alpine
+    container_name: messenger-db
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "${DB_PORT2}:5433"
+    volumes:
+      - ./postgres_data_msg:/var/lib/postgresql/data
+    networks:
+      - messenger-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
   auth-service:
      build:
       context: ../auth-service

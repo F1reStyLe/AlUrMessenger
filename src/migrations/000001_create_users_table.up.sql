@@ -11,7 +11,7 @@ CREATE TABLE users (
 CREATE INDEX idx_users_user_id ON users(user_id);
 
 CREATE TABLE IF NOT EXISTS chat_types (
-    id int PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     name VARCHAR(20) UNIQUE NOT NULL
 )
 
@@ -55,6 +55,7 @@ CREATE INDEX idx_message_created_at ON messages(created_at);
 
 -- +migrate Down
 DROP TABLE IF EXISTS user_activities;
+DROP TABLE IF EXISTS chat_types;
 DROP TABLE IF EXISTS chats;
 DROP TABLE IF EXISTS chat_members;
 DROP TABLE IF EXISTS messages;
