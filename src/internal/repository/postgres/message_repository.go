@@ -17,7 +17,7 @@ func NewPostgresMessageRepository(db *sqlx.DB) *PostgresMessageRepository {
 
 func (r *PostgresMessageRepository) SaveMessage(ctx context.Context, message *domain.Message) (int, error) {
 	err := r.db.QueryRowContext(ctx, `
-      INSERT INTO messages (chat_id, user_id, content)
+      INSERT INTO public.messages (chat_id, user_id, content)
       VALUES ($1, $2, $3)
       returning id`,
 		message.ChatID, message.UserID, message.Text).Scan(message.ID)
