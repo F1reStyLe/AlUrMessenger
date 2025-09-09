@@ -3,7 +3,6 @@
 CREATE TABLE IF NOT EXISTS users (
     id int PRIMARY KEY,
     user_id int UNIQUE NOT NULL,
-    username VARCHAR(30) UNIQUE NOT NULL,
     last_seen_at TIMESTAMPTZ,
     is_online BOOLEAN DEFAULT FALSE
 );
@@ -29,7 +28,7 @@ CREATE INDEX IF NOT EXISTS idx_chat_type ON chats(type);
 -- Участники чатов
 CREATE TABLE IF NOT EXISTS chat_members (
     chat_id INT REFERENCES chats(id) ON DELETE CASCADE,
-    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    user_id INT NOT NULL,
     joined_at TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (chat_id, user_id)
 );
@@ -39,9 +38,9 @@ CREATE INDEX IF NOT EXISTS idx_chat_member_user_id ON chat_members(user_id);
 
 -- Таблица сообщений
 CREATE TABLE IF NOT EXISTS messages (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     chat_id INT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
-    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id INT NOT NULL,
     content TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),

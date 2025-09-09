@@ -36,7 +36,6 @@ func main() {
 		logger.Error("❌ Failed to connect to database")
 	}
 	defer db.Close()
-	log.Println("✅ Database connected")
 
 	migrations := &migrate.FileMigrationSource{
 		Dir: "migrations",
@@ -77,13 +76,13 @@ func main() {
 
 	port := fmt.Sprintf(":%s", cfg.HTTP.Port)
 	// Запуск сервера
-	log.Printf(fmt.Sprintf("Server starting on %s", port))
+	log.Printf("Server starting on %s", port)
 	if err := http.ListenAndServe(port, nil); err != nil {
 		log.Println("Server failed to start")
 	}
 
 	// Graceful shutdown
-	waitForShutdown(logger)
+	waitForShutdown()
 }
 
 func setupLogger(cfg *config.Config) *slog.Logger {
@@ -117,7 +116,7 @@ func setupLogger(cfg *config.Config) *slog.Logger {
 	return slog.New(handler)
 }
 
-func waitForShutdown(logger *slog.Logger) {
+func waitForShutdown() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
