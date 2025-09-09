@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -27,7 +28,7 @@ func main() {
 	cfg := config.MustLoad()
 
 	logger := setupLogger(cfg)
-	logger.Info("✅ Config loaded")
+	log.Println("✅ Config loaded")
 
 	// Подключение к БД
 	db, err := database.NewPostgresConnection(cfg.Database)
@@ -35,7 +36,7 @@ func main() {
 		logger.Error("❌ Failed to connect to database")
 	}
 	defer db.Close()
-	logger.Info("✅ Database connected")
+	log.Println("✅ Database connected")
 
 	migrations := &migrate.FileMigrationSource{
 		Dir: "migrations",
@@ -43,9 +44,9 @@ func main() {
 
 	n, err := migrate.Exec(db.DB, "postgres", migrations, migrate.Up)
 	if err != nil {
-		logger.Info("Failed to apply migrations:", "error", err)
+		log.Println("Failed to apply migrations:", "error", err)
 	}
-	logger.Info("Applied migrations!", "count", n)
+	log.Println("Applied migrations!", "count", n)
 
 	_, _ = db.Exec("SET search_path TO msg")
 
@@ -68,7 +69,7 @@ func main() {
 
 	go func() {
 		<-sigChan
-		logger.Info("Shutdown signal received")
+		log.Println("Shutdown signal received")
 		wsHub.GracefulShutdown()
 		time.Sleep(2 * time.Second)
 		os.Exit(0)
@@ -76,9 +77,9 @@ func main() {
 
 	port := fmt.Sprintf(":%s", cfg.HTTP.Port)
 	// Запуск сервера
-	logger.Info(fmt.Sprintf("Server starting on %s", port))
+	log.Printf(fmt.Sprintf("Server starting on %s", port))
 	if err := http.ListenAndServe(port, nil); err != nil {
-		logger.Info("Server failed to start")
+		log.Println("Server failed to start")
 	}
 
 	// Graceful shutdown
@@ -120,7 +121,7 @@ func waitForShutdown(logger *slog.Logger) {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	logger.Info("🛑 Shutting down...")
+	log.Println("🛑 Shutting down...")
 	time.Sleep(1 * time.Second)
 }
 
