@@ -11,7 +11,7 @@ services:
     volumes:
       - ./postgres_data_auth:/var/lib/postgresql/data
     networks:
-      - messenger-network
+      - auth-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -21,11 +21,11 @@ services:
     image: postgres:15-alpine
     container_name: messenger-db
     environment:
-      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_DB: ${DB_NAME2}
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "${DB_PORT2}:5433"
+      - "${DB_PORT2}:5432"
     volumes:
       - ./postgres_data_msg:/var/lib/postgresql/data
     networks:
@@ -43,7 +43,7 @@ services:
      container_name: auth
      restart: always
      networks:
-      - messenger-network
+      - auth-network
      depends_on:
       - postgres
 
@@ -52,4 +52,6 @@ volumes:
 
 networks:
   messenger-network:
+    driver: bridge
+  auth-network:
     driver: bridge
