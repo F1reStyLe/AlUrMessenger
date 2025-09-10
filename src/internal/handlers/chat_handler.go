@@ -34,3 +34,22 @@ func (h *ChatHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]int{"id": id})
 }
+
+func (h *ChatHandler) AddUserToChat(w http.ResponseWriter, r *http.Request) {
+	var chat *domain.Chat
+	ctx := r.Context()
+	err := json.NewDecoder(r.Body).Decode(&chat)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err = h.ChatRepo.AddUserToChat(ctx, chat)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+}

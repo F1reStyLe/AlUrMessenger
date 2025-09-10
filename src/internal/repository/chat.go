@@ -7,4 +7,5 @@ import (
 
 type ChatRepository interface {
 	CreateChat(ctx context.Context, chat *domain.Chat) (int, error)
+	AddUserToChat(ctx context.Context, chat *domain.Chat) error
 }
