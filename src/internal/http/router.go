@@ -13,4 +13,5 @@ func RegisterHandlers(mux *http.ServeMux, cfg *config.Config, db *sqlx.DB, authM
 	chatRepo := postgres.NewPostgresChatRepository(db)
 	chatHandler := handlers.NewChatHandler(chatRepo)
 	mux.Handle("POST /api/chats", authMiddleware(chatHandler.CreateChat))
+	mux.Handle("POST /api/chats/adduser", authMiddleware(chatHandler.AddUserToChat))
 }
