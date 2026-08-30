@@ -7,7 +7,9 @@ MinIO, REST, WebSocket и внутренний gRPC. Frontend — простые
 Phase 0 и **Phase 1 — Foundation (1.1–1.6)** завершены: API/worker, конфигурация,
 логи, HTTP lifecycle, PostgreSQL/Redis/Kafka/MinIO adapters и отдельные команды миграций/init.
 Добавлены development Compose, Project/User, проверка JWT через внешний Auth, локальные роли и профили.
-Чата, jobs и frontend пока нет. [Identity API и запуск seed](docs/IDENTITY.md).
+Реализованы также **Phase 2–4**: [conversations/memberships](docs/CONVERSATIONS.md),
+[зашифрованные messages/search/outbox](docs/MESSAGES.md), [WebSocket/recovery/presence](docs/REALTIME.md).
+Phase 5–10, gRPC и frontend ещё не реализованы. [Identity API и seed](docs/IDENTITY.md).
 Добавлены [Project policies, CORS, Redis limits и audit](docs/POLICIES.md).
 Swagger UI доступен на `/docs/api`, спецификация — `/docs/api/openapi.json`.
 Readiness подтверждает готовность инфраструктуры, а не всего Chat API.
@@ -60,6 +62,7 @@ $env:HTTP_ADDR = '127.0.0.1:18080'
 $env:AUTH_MODE = 'remote'
 $env:AUTH_BASE_URL = 'http://127.0.0.1:8080'
 $env:AUTH_PROJECT_ID = '00000000-0000-4000-8000-000000000001'
+$env:CONTENT_KEYS_FILE = '.local/content-keys.json'
 go run ./cmd/api
 ```
 
@@ -73,7 +76,8 @@ go run ./cmd/worker
 В Linux/macOS аналогично, с теми же Auth/infrastructure environment: `APP_ENV=development HTTP_ADDR=127.0.0.1:18080 go run ./cmd/api` и
 `APP_ENV=development go run ./cmd/worker` в отдельных терминалах.
 API по умолчанию слушает `127.0.0.1:8080`, worker probes — `127.0.0.1:8081`.
-Worker пока обслуживает только probes/lifecycle; outbox/consumers/jobs ещё не реализованы.
+Worker публикует outbox в Kafka, отправляет Redis hints через durable consumer inbox
+и переносит last-seen batches в PostgreSQL. Retention/webhook/bot jobs — будущие фазы.
 
 ```powershell
 curl.exe -i http://127.0.0.1:18080/health/live
@@ -87,8 +91,9 @@ Redis, Kafka и private MinIO; иначе `503` с кодом `DEPENDENCY_UNAVAI
 Каждый ответ middleware содержит X-Request-ID; безопасный ID также есть в error envelope и structured log.
 Ошибки HTTP-парсера/лимита headers до middleware могут не иметь этих headers и JSON envelope.
 Текущий [OpenAPI JSON](api/openapi/openapi.json) описывает probes, Identity, settings/flags,
-audit, CORS и docs. Swagger UI/JS/CSS встроены в binary; CDN/внешний validator не используются.
-Worker обслуживает только probes. В Swagger нет endpoints будущего чата.
+audit, conversations/memberships, messages/search, checkpoints/recovery и WebSocket upgrade.
+Swagger UI/JS/CSS встроены в binary; CDN/внешний validator не используются.
+HTTP worker обслуживает только probes; бизнес-работу выполняют фоновые циклы.
 
 ## Конфигурация и остановка
 

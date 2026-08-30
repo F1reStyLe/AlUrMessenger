@@ -99,3 +99,34 @@ func TestContract(t *testing.T) {
 		}
 	}
 }
+
+// TestConversationMessageAndRecoveryRoutes keeps every implemented operation
+// visible in Swagger, including receipt bodies and the separate WS upgrade contract.
+func TestConversationMessageAndRecoveryRoutes(t *testing.T) {
+	var doc struct {
+		Paths map[string]map[string]json.RawMessage `json:"paths"`
+	}
+	if err := json.Unmarshal(Document, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for path, methods := range map[string][]string{
+		"/api/v1/conversations":                        {"get", "post", "options"},
+		"/api/v1/conversations/{id}":                   {"get", "patch", "options"},
+		"/api/v1/conversations/{id}/members":           {"get", "post", "options"},
+		"/api/v1/conversations/{id}/members/{user_id}": {"patch", "delete", "options"},
+		"/api/v1/conversations/{id}/messages":          {"get", "post", "options"},
+		"/api/v1/messages/{id}":                        {"get", "options"},
+		"/api/v1/conversations/{id}/search":            {"get", "options"},
+		"/api/v1/conversations/{id}/events":            {"get", "options"},
+		"/api/v1/conversations/{id}/snapshot":          {"get", "options"},
+		"/api/v1/conversations/{id}/read":              {"post", "options"},
+		"/api/v1/conversations/{id}/delivered":         {"post", "options"},
+		"/ws":                                          {"get"},
+	} {
+		for _, method := range methods {
+			if len(doc.Paths[path][method]) == 0 {
+				t.Fatal("implemented route undocumented", method, path)
+			}
+		}
+	}
+}

@@ -5,6 +5,10 @@
 Commit/push — только по прямому требованию пользователя. Локальный журнал шагов ведётся в
 игнорируемом `Agents.md`; результаты фазы и инструкции запуска отражаются в versioned документации.
 
+Текущая реализация: Phase 0–4. Conversations/memberships, encrypted messages/search/outbox,
+WebSocket/replay/checkpoints/presence доступны; Phase 5–10 ещё не реализованы.
+Контракты и ограничения: docs/CONVERSATIONS.md, docs/MESSAGES.md, docs/REALTIME.md.
+
 ## Порядок работы и Definition of Done
 
 Перед шагом: прочитать актуальный план/код, определить минимальный scope и затрагиваемые файлы.

@@ -4,9 +4,18 @@ package app
 import (
 	"context"
 	"github.com/F1reStyLe/AlUrMessenger/internal/auth"
+	"github.com/F1reStyLe/AlUrMessenger/internal/conversation"
+	conversationrepo "github.com/F1reStyLe/AlUrMessenger/internal/conversation/repository"
+	conversationhttp "github.com/F1reStyLe/AlUrMessenger/internal/conversation/transport"
+	"github.com/F1reStyLe/AlUrMessenger/internal/cryptography"
 	"github.com/F1reStyLe/AlUrMessenger/internal/identity"
 	"github.com/F1reStyLe/AlUrMessenger/internal/identity/repository"
 	identityhttp "github.com/F1reStyLe/AlUrMessenger/internal/identity/transport"
+	"github.com/F1reStyLe/AlUrMessenger/internal/message"
+	messagerepo "github.com/F1reStyLe/AlUrMessenger/internal/message/repository"
+	messagehttp "github.com/F1reStyLe/AlUrMessenger/internal/message/transport"
+	"github.com/F1reStyLe/AlUrMessenger/internal/outbox"
+	"github.com/F1reStyLe/AlUrMessenger/internal/realtime"
 	"io"
 	"log/slog"
 	"net"
@@ -63,6 +72,8 @@ func run(ctx context.Context, service config.Service, output io.Writer) (exitCod
 		return 1
 	}
 	var verifier auth.Verifier
+	var contentKeys *cryptography.Keys
+	allowNoOrigin := false
 	if service == config.API {
 		// Remote identity validation is the normal mode. Offline RSA is an explicit
 		// development fixture only and cannot silently bypass session checks in production.
@@ -80,6 +91,19 @@ func run(ctx context.Context, service config.Service, output io.Writer) (exitCod
 		}
 		if err != nil {
 			logger.Error("authentication configuration rejected")
+			return 1
+		}
+		contentKeys, err = cryptography.Load(os.Getenv("CONTENT_KEYS_FILE"))
+		if err != nil {
+			logger.Error("content encryption configuration rejected")
+			return 1
+		}
+		switch os.Getenv("WS_ALLOW_NO_ORIGIN") {
+		case "", "false":
+		case "true":
+			allowNoOrigin = true
+		default:
+			logger.Error("websocket configuration rejected")
 			return 1
 		}
 	}
@@ -130,8 +154,54 @@ func run(ctx context.Context, service config.Service, output io.Writer) (exitCod
 			return limiter.Before(identityhttp.Authenticate(identities, limiter.After(next)))
 		}
 		identityhttp.Register(server, identities, protect)
+		messageStore := &messagerepo.Store{DB: clients.Postgres, Crypto: contentKeys}
+		messages := &message.Service{Store: messageStore}
+		recovery := &message.RecoveryService{Store: messageStore}
+		conversations := &conversation.Service{Store: &conversationrepo.Store{DB: clients.Postgres}}
+		messagehttp.Register(server, messages, protect)
+		messagehttp.RegisterRecovery(server, recovery, protect)
+		conversationhttp.Register(server, conversations, protect)
+		conversationhttp.RegisterMembership(server, &conversation.MembershipService{Store: &conversationrepo.Store{DB: clients.Postgres}}, protect)
 		policyhttp.Register(server, &policy.Service{Store: &policyrepo.Store{DB: clients.Postgres}}, protect)
 		apidocs.Register(server)
+		hub := realtime.NewHub()
+		gateway := &realtime.Gateway{Hub: hub, Identity: identities, Messages: messages, Recovery: recovery, Conversations: conversations, Presence: &realtime.Presence{DB: clients.Postgres, Redis: clients.Redis}, Limiter: limiter, AllowNoOrigin: allowNoOrigin}
+		server.Handle("/ws", limiter.Before(gateway))
+		background, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() { defer close(done); hub.Listen(background, clients.Redis) }()
+		// Trigger drain with process shutdown, and also on an early HTTP serving error.
+		drainDone := make(chan struct{})
+		go func() {
+			defer close(drainDone)
+			select {
+			case <-ctx.Done():
+			case <-background.Done():
+			}
+			hub.Drain()
+		}()
+		defer func() { cancel(); <-drainDone; <-done }()
+	} else {
+		router, routerErr := outbox.NewRouter(infraConfig.Kafka, clients.Postgres, clients.Redis)
+		if routerErr != nil {
+			logger.Error("event router configuration rejected")
+			return 1
+		}
+		// Stop publication before closing the DB/Kafka clients, including HTTP startup failure.
+		background, cancel := context.WithCancel(ctx)
+		done := make(chan struct{})
+		routerDone := make(chan struct{})
+		presenceDone := make(chan struct{})
+		go func() {
+			defer close(presenceDone)
+			(&realtime.Presence{DB: clients.Postgres, Redis: clients.Redis}).RunFlush(background)
+		}()
+		go func() { defer close(routerDone); router.Run(background) }()
+		go func() {
+			defer close(done)
+			(&outbox.Worker{DB: clients.Postgres, Publisher: outbox.Kafka{Client: clients.Kafka}, Logger: logger}).Run(background)
+		}()
+		defer func() { cancel(); <-done; <-routerDone; <-presenceDone }()
 	}
 	logger.Info("service starting")
 	if err := server.Run(ctx, listener); err != nil {

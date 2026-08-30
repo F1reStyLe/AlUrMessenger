@@ -240,3 +240,61 @@ Offline dev-rsa допускается только development/test, никог
 CLI назначения ролей требует операционного журнала оператора; HTTP audit пока фиксирует
 изменения settings, полноценный management API ролей относится к дальнейшей работе.
 Контракт и команды: [Identity](docs/IDENTITY.md), [OpenAPI](api/openapi/openapi.json).
+
+## D33 — Conversations и membership (Phase 2)
+
+DIRECT/GROUP/CHANNEL реализованы через три tenant-qualified таблицы: conversations,
+direct_pairs, conversation_members. PK нормализованной DIRECT-пары и pair advisory lock
+дают единственный результат при конкурентном создании; triggers запрещают третьего
+участника/leave/смену роли DIRECT и неполный creation commit. GROUP/CHANNEL private,
+creator moderator; initial membership включён уже в 2.1, чтобы CRUD не был публичным.
+DELETE conversation не добавлен: текущий API_DESIGN не содержит такой операции.
+
+Список — ascending UUID v7 с cursor Project/user (для members также conversation).
+Это стабильный порядок создания, не inbox ranking по последнему сообщению. Metadata edits
+не перемещают строки. Максимум 100 initial/add users, 100 entries на страницу.
+Moderator role/ban/leave защищены conversation row lock и last active moderator guard;
+Project admin не обходит member/moderator. Muted только self, DIRECT поддерживает self-mute.
+Human-only moderator пока соответствует human-only membership management API.
+
+Audit пишется вместе с изменением. Leave не удаляет историю, rejoin ordinary member
+сохраняет первоначальный joined_at/mute; version возрастает. Project/conversation ban
+сохраняет read-only. Dev seed повторяем без восстановления удалённых membership/ролей.
+Все endpoints документированы в OpenAPI; runtime DB не меняет tenant/identity columns.
+
+## D34 — Messages, encryption и публикация (Phase 3)
+
+TEXT/SYSTEM, SQL event log/outbox и idempotency receipt фиксируются атомарно. Conversation
+row lock сериализует независимые message_sequence/event_sequence; client ID scoped по
+Project/sender на 365 дней, keyed canonical fingerprint отклоняет изменённый retry с 409.
+Окно dedup указано в ответе; истёкший контент не восстанавливается повтором.
+AES-256-GCM + AAD связывает payload с Project/conversation/message/version. HKDF разделяет
+Projects и назначения encryption/search/fingerprint. Ключи вне БД, старые версии сохраняются.
+Blind HMAC index поддерживает whole-word Unicode AND search без plaintext-копии; утечки
+равенства/частоты внутри Project приняты и описаны в docs/MESSAGES.md.
+Worker публикует head aggregate с ack=all; повтор после потерянного ack сохраняет event_id.
+Consumer проверяет canonical PG event, Redis publish, затем durable inbox, затем Kafka commit.
+Дубликат Redis hint безвреден; очередность/содержимое доставки всегда задаёт PostgreSQL.
+
+## D35 — Realtime, privacy и ограниченное состояние (Phase 4)
+
+Использован [coder/websocket v1.8.15](https://pkg.go.dev/github.com/coder/websocket@v1.8.15),
+с context-aware I/O, одним data writer и явным drain hijacked connections.
+Протокол: auth frame вместо query/header JWT, exact Origin allowlist, 5s/8KiB handshake,
+128KiB frames, 16 connections/user, 16 subscriptions/socket, bounded queues 16/64.
+Raw JWT живёт только в Session. Проверка Auth на командах/выдаче/idle polling сохраняет
+отзыв access token, цена — дополнительные Auth/PG обращения; positive cache не добавлен.
+Перед отправкой перепроверяются membership и privacy, включая уже queued frames.
+
+Replay — reference events из PG, independent event cursor, snapshot одной REPEATABLE READ
+транзакцией. Неверный/gapped cursor требует resync, не молчаливого прыжка. Redis hints
+ускоряют polling; periodic catch-up работает без них. HTTP и WS используют общие services.
+READ/DELIVERED монотонны и не выше message_sequence; READ повышает delivered. Выключенный
+read_receipts скрывает peer receipts через sync.advance, но сохраняет собственное состояние
+между устройствами. Так flag не ломает приватный read checkpoint.
+
+Вместо отдельных ephemeral online/offline и typing started/stopped дельт выбраны ограниченные
+presence.state/typing.state snapshots. Presence watch до 100 IDs с текущим membership;
+typing TTL 5s. UI заменяет состояние целиком, unavailable не равно offline. Redis connection
+lease 75s продлевается только после pong; last_seen flush каждые 30s, до 256 markers.
+Ограничения и точные поля отражены в docs/REALTIME.md; gRPC, bots и Phase 5–10 не реализованы.

@@ -135,7 +135,16 @@ func (l *Limiter) Before(next http.Handler) http.Handler {
 			w.Header().Add("Vary", "Access-Control-Request-Method")
 			w.Header().Add("Vary", "Access-Control-Request-Headers")
 			method := r.Header.Get("Access-Control-Request-Method")
-			allowed := method == "GET" || (method == "PATCH" && (r.URL.Path == "/api/v1/me" || r.URL.Path == "/admin/v1/project" || r.URL.Path == "/admin/v1/feature-flags"))
+			// Only the collection supports POST; PATCH is restricted to a single
+			// conversation segment, so future membership routes are not enabled here.
+			conversationItem := strings.HasPrefix(r.URL.Path, "/api/v1/conversations/") && strings.Count(r.URL.Path, "/") == 4
+			segments := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+			memberCollection := len(segments) == 5 && segments[0] == "api" && segments[1] == "v1" && segments[2] == "conversations" && segments[4] == "members"
+			memberItem := len(segments) == 6 && segments[0] == "api" && segments[1] == "v1" && segments[2] == "conversations" && segments[4] == "members"
+			allowed := method == "GET" || (method == "POST" && r.URL.Path == "/api/v1/conversations") || (method == "PATCH" && (conversationItem || r.URL.Path == "/api/v1/me" || r.URL.Path == "/admin/v1/project" || r.URL.Path == "/admin/v1/feature-flags"))
+			allowed = allowed || (method == "POST" && memberCollection) || ((method == "PATCH" || method == "DELETE") && memberItem)
+			messageCollection := len(segments) == 5 && segments[0] == "api" && segments[1] == "v1" && segments[2] == "conversations" && (segments[4] == "messages" || segments[4] == "read" || segments[4] == "delivered")
+			allowed = allowed || (method == "POST" && messageCollection)
 			for _, h := range strings.Split(r.Header.Get("Access-Control-Request-Headers"), ",") {
 				switch strings.ToLower(strings.TrimSpace(h)) {
 				case "", "authorization", "content-type", "x-request-id":

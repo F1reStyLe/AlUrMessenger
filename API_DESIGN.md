@@ -8,6 +8,9 @@ GET/PATCH `/api/v1/me`, GET `/api/v1/users`, GET `/api/v1/users/{user_id}`.
 Реализуемые endpoints сопровождаются machine-readable OpenAPI
 в `api/openapi/`; локальный Swagger UI на `/docs/api` и JSON `/docs/api/openapi.json` реализованы в 1.6.
 Этот документ не означает готовность endpoint.
+Реализованный scope расширен Phase 2–4: conversations/memberships, message send/history/search,
+read/delivered, events/snapshot и `/ws`. Точные текущие ограничения и расхождения с будущими
+контрактами ниже: [Messages](docs/MESSAGES.md), [Realtime](docs/REALTIME.md), OpenAPI.
 WS использует те же application services и правила: [WEBSOCKET_PROTOCOL.md](WEBSOCKET_PROTOCOL.md).
 
 ## Уже реализовано: process/infrastructure probes, шаги 1.1–1.2

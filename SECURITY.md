@@ -5,6 +5,9 @@
 [WS](WEBSOCKET_PROTOCOL.md), [events](EVENTS.md), [schema](DB_SCHEMA.md).
 Реализованный Foundation subset: [JWT/identity](docs/IDENTITY.md),
 [Project permissions, audit, CORS и Redis quotas](docs/POLICIES.md).
+Реализованы также AES-GCM/AAD и blind search без plaintext-копии ([Messages](docs/MESSAGES.md)),
+current-membership replay, отзыв WS-сессий через Auth и ephemeral privacy ([Realtime](docs/REALTIME.md)).
+Это не внешний security audit и не production TLS/HA deployment.
 
 ## Trust boundaries
 

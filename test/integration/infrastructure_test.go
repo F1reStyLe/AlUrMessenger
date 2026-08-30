@@ -134,6 +134,8 @@ func TestInfrastructureLifecycle(t *testing.T) {
 	t.Run("identity", func(t *testing.T) { testIdentity(t, pg, migrator) })
 	t.Run("policies", func(t *testing.T) { testPolicies(t, pg, migrator, cfg.RedisURL) })
 	t.Run("local-roles", func(t *testing.T) { testLocalRoles(t, pg, migrator) })
+	t.Run("conversations", func(t *testing.T) { testConversations(t, pg, migrator, cfg.RedisURL) })
+	t.Run("messages", func(t *testing.T) { testMessages(t, pg, migrator) })
 	adminCfg.AccessKey = "test-root"
 	adminCfg.SecretKey = os.Getenv("ALUR_TEST_MINIO_ADMIN")
 	admin, err := objectstore.Open(adminCfg, cfg.Timeout)
@@ -198,6 +200,8 @@ func TestInfrastructureLifecycle(t *testing.T) {
 		t.Fatal("kafka consume failed")
 	}
 	// Private object: авторизованный round-trip проходит, anonymous GET запрещён.
+	t.Run("event-routing", func(t *testing.T) { testEventRouting(t, clients, cfg) })
+	t.Run("realtime", func(t *testing.T) { testRealtime(t, clients, migrator) })
 	key := "fixture/object.txt"
 	if _, err = clients.Storage.Client.PutObject(ctx, clients.Storage.Bucket, key, strings.NewReader("private"), 7, minio.PutObjectOptions{}); err != nil {
 		t.Fatal("private object write failed")

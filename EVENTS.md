@@ -1,8 +1,11 @@
 # Kafka, changefeed и webhooks
 
-Проект Phase 0. События — versioned факты; source of truth — PostgreSQL.
-Machine-readable AsyncAPI в `api/asyncapi/` появляется с реализацией event transport.
-Документация публикуется на `/docs/asyncapi` и `/docs/webhooks`.
+События — versioned факты; source of truth — PostgreSQL. Phase 3–4 реализуют
+conversation/message/checkpoint events и consumer inbox; остальные события ниже — будущие фазы.
+Machine-readable [AsyncAPI](api/asyncapi/asyncapi.json) описывает действующий Kafka transport.
+HTTP-публикация `/docs/asyncapi` и `/docs/webhooks` будет добавлена с документацией интеграций.
+Текущие membership event types: conversation.members.added, conversation.member.updated,
+conversation.member.left. Outbox не включает message content; WS выдаёт reference frames.
 
 ## Envelope v1
 

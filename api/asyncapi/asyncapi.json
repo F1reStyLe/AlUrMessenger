@@ -1,0 +1,90 @@
+{
+  "asyncapi": "2.6.0",
+  "info": {
+    "title": "Universal Chat committed events",
+    "version": "1.0.0",
+    "description": "Phase 3–4 reference-only Kafka events; WS client protocol is documented separately in docs/REALTIME.md."
+  },
+  "defaultContentType": "application/json",
+  "servers": {
+    "development": {
+      "url": "kafka:9092",
+      "protocol": "kafka",
+      "description": "Private development broker; production requires SASL/TLS."
+    }
+  },
+  "channels": {
+    "chat.events.v1": {
+      "description": "Key=conversation_id, per-aggregate ordered publication, at-least-once. Consumers deduplicate event_id. No content/metadata/JWT.",
+      "publish": {
+        "operationId": "publishCommittedConversationEvent",
+        "message": {
+          "name": "ConversationEvent",
+          "payload": {
+            "type": "object",
+            "required": [
+              "event_id",
+              "event_type",
+              "event_version",
+              "project_id",
+              "aggregate_type",
+              "aggregate_id",
+              "aggregate_sequence",
+              "occurred_at",
+              "payload"
+            ],
+            "properties": {
+              "event_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "event_type": {
+                "type": "string",
+                "example": "message.created",
+                "enum": [
+                  "conversation.created",
+                  "conversation.updated",
+                  "conversation.members.added",
+                  "conversation.member.updated",
+                  "conversation.member.left",
+                  "message.created",
+                  "message.read",
+                  "message.delivered"
+                ]
+              },
+              "event_version": {
+                "type": "integer",
+                "const": 1
+              },
+              "project_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "aggregate_type": {
+                "type": "string",
+                "const": "conversation"
+              },
+              "aggregate_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "aggregate_sequence": {
+                "type": "string",
+                "pattern": "^[0-9]+$",
+                "example": "0"
+              },
+              "occurred_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "payload": {
+                "type": "object",
+                "description": "References only. Peer read receipts become sync.advance with empty payload when read_receipts=false."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -95,6 +95,9 @@ func readJSON(w http.ResponseWriter, r *http.Request, destination any, rejectNul
 		return false
 	}
 	strict := json.NewDecoder(bytes.NewReader(raw))
+	// Preserve arbitrary metadata integers exactly; typed DTO fields keep their
+	// own integer/string decoding rules.
+	strict.UseNumber()
 	if rejectNull {
 		var fields map[string]json.RawMessage
 		if json.Unmarshal(raw, &fields) != nil {
@@ -103,7 +106,7 @@ func readJSON(w http.ResponseWriter, r *http.Request, destination any, rejectNul
 		}
 		for _, value := range fields {
 			if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-				WriteError(w, r, 400, "INVALID_REQUEST", "Patch fields cannot be null")
+				WriteError(w, r, 400, "INVALID_REQUEST", "Request fields cannot be null")
 				return false
 			}
 		}

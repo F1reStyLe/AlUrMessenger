@@ -1,6 +1,10 @@
 # WebSocket protocol v1
 
-Проект Phase 0. Endpoint `/ws`, subprotocol `chat.v1`, production только WSS.
+Endpoint `/ws`, subprotocol `chat.v1`, production только WSS. Реализация Phase 4 и её
+точные пределы описаны в [docs/REALTIME.md](docs/REALTIME.md); этот документ также содержит
+целевые команды будущих фаз (edit/delete/reactions/pins/bot credentials).
+Текущие ephemeral события — presence.state/typing.state с полной заменой наблюдаемого
+состояния вместо online/offline и started/stopped дельт. Presence watch ограничен 100 IDs.
 Domain errors, DTO и flags совпадают с [REST](API_DESIGN.md); события — [EVENTS.md](EVENTS.md).
 
 ## Handshake и lifetime

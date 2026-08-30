@@ -77,7 +77,10 @@ func Seed(ctx context.Context, environment string, db *pgx.Conn) error {
 	// Dev integration flags are enabled only before the first administrative edit.
 	// Repeat seed must never reset the admin's versioned settings.
 	_, err := db.Exec(ctx, `UPDATE chat.project_settings SET flags=flags || '{"allow_bots":true,"allow_webhooks":true}'::jsonb WHERE project_id=$1 AND settings_version=1 AND updated_by IS NULL`, DevProject)
-	return err
+	if err != nil {
+		return err
+	}
+	return seedConversations(ctx, db)
 }
 
 // Token выпускается только в development; срок 15 минут, явный access purpose и RS256.

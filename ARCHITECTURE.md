@@ -7,7 +7,10 @@ HTTP identity transport → application interfaces → PostgreSQL repository. В
 проверяется через Auth; роли принадлежат Chat DB (D32), RS256 оставлен для offline dev fixture.
 В 1.5 добавлены policy application/repository/transport и Redis/CORS admission middleware.
 Foundation 1.6 завершён: Swagger UI/spec embedded, unit/integration/API acceptance.
-Phase 2 и последующие возможности ниже остаются архитектурным планом.
+Phase 2–4 реализованы: private conversations/memberships, AES-GCM messages, blind search,
+transactional event log/outbox, Kafka→Redis router, WS/recovery/checkpoints/presence/typing.
+Точный текущий контракт: [Messages](docs/MESSAGES.md), [Realtime](docs/REALTIME.md).
+Остальные возможности Phase 5–10 ниже остаются архитектурным планом.
 Основание: [ТЗ](docs/REQUIREMENTS.md), [решения](DECISIONS.md), [план](IMPLEMENTATION_PLAN.md).
 Проект создаётся с нуля; совместимость с удалённым прототипом не требуется.
 

@@ -1,0 +1,401 @@
+//go:build integration
+
+package integration
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/F1reStyLe/AlUrMessenger/internal/auth"
+	"github.com/F1reStyLe/AlUrMessenger/internal/conversation"
+	conversationrepo "github.com/F1reStyLe/AlUrMessenger/internal/conversation/repository"
+	"github.com/F1reStyLe/AlUrMessenger/internal/cryptography"
+	"github.com/F1reStyLe/AlUrMessenger/internal/identity"
+	identityrepo "github.com/F1reStyLe/AlUrMessenger/internal/identity/repository"
+	identityhttp "github.com/F1reStyLe/AlUrMessenger/internal/identity/transport"
+	"github.com/F1reStyLe/AlUrMessenger/internal/message"
+	messagerepo "github.com/F1reStyLe/AlUrMessenger/internal/message/repository"
+	messagehttp "github.com/F1reStyLe/AlUrMessenger/internal/message/transport"
+	"github.com/F1reStyLe/AlUrMessenger/internal/platform/admission"
+	"github.com/F1reStyLe/AlUrMessenger/internal/platform/config"
+	"github.com/F1reStyLe/AlUrMessenger/internal/platform/httpserver"
+	"github.com/F1reStyLe/AlUrMessenger/internal/platform/infrastructure"
+	"github.com/F1reStyLe/AlUrMessenger/internal/policy"
+	"github.com/F1reStyLe/AlUrMessenger/internal/provision"
+	"github.com/F1reStyLe/AlUrMessenger/internal/realtime"
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+)
+
+// leaseVerifier verifies signatures/expiry and models the external session revocation
+// store. The live Auth HTTP compatibility is separately exercised in development.
+type leaseVerifier struct {
+	mu         sync.Mutex
+	identities map[string]auth.Identity
+	key        []byte
+}
+
+func (v *leaseVerifier) Verify(_ context.Context, token string) (auth.Identity, error) {
+	parsed, err := jwt.Parse(token, func(*jwt.Token) (any, error) { return v.key, nil }, jwt.WithValidMethods([]string{"HS256"}), jwt.WithExpirationRequired())
+	if err != nil || !parsed.Valid {
+		return auth.Identity{}, auth.ErrUnauthenticated
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	id, ok := v.identities[token]
+	if !ok {
+		return auth.Identity{}, auth.ErrUnauthenticated
+	}
+	return id, nil
+}
+
+// testRealtime runs two independent HTTP servers/hubs on shared PG/Redis. There is
+// deliberately no router loop: cross-instance delivery must recover without hints.
+func testRealtime(t *testing.T, clients *infrastructure.Clients, op *pgx.Conn) {
+	ctx := t.Context()
+	project := uuid.NewString()
+	if err := provision.Create(ctx, op, provision.Project{ID: project, Name: "Realtime", Issuer: "https://issuer.test", Audience: "chat"}); err != nil {
+		t.Fatal(err)
+	}
+	verifier := &leaseVerifier{identities: map[string]auth.Identity{}, key: []byte("only-this-disposable-fixture-key-32")}
+	identities := &identity.Service{Verifier: verifier, Store: &identityrepo.Store{DB: clients.Postgres}}
+	tokenFor := func(external string, expires time.Time) string {
+		token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{Subject: external, ID: uuid.NewString(), ExpiresAt: jwt.NewNumericDate(expires)}).SignedString(verifier.key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		verifier.mu.Lock()
+		verifier.identities[token] = auth.Identity{ProjectID: project, ExternalID: external}
+		verifier.mu.Unlock()
+		return token
+	}
+	aToken, bToken := tokenFor("alice", time.Now().Add(time.Hour)), tokenFor("bob", time.Now().Add(time.Hour))
+	a, err := identities.Authenticate(ctx, aToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := identities.Authenticate(ctx, bToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	convStore := &conversationrepo.Store{DB: clients.Postgres}
+	convs := &conversation.Service{Store: convStore}
+	trace := policy.Trace{RequestID: uuid.NewString()}
+	conv, _, err := convs.Create(ctx, a, conversation.Create{Type: "GROUP", MemberIDs: []string{b.User.ID}}, trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := cryptography.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys, err := cryptography.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &messagerepo.Store{DB: clients.Postgres, Crypto: keys}
+	messages := &message.Service{Store: store}
+	recovery := &message.RecoveryService{Store: store}
+	presence := &realtime.Presence{DB: clients.Postgres, Redis: clients.Redis}
+	start := func() (string, *realtime.Hub) {
+		hub := realtime.NewHub()
+		limiter := &admission.Limiter{Redis: clients.Redis, Config: admission.Config{Origins: map[string]bool{"https://demo.test": true}, IPPerMinute: 10000, UserPerMinute: 10000}}
+		server := httpserver.New(config.HTTP{ReadHeaderTimeout: time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, MaxBodyBytes: 131072}, 2*time.Second, slog.New(slog.NewTextHandler(io.Discard, nil)), func(context.Context) error { return nil })
+		server.Handle("/ws", limiter.Before(&realtime.Gateway{Hub: hub, Identity: identities, Messages: messages, Recovery: recovery, Conversations: convs, Presence: presence, Limiter: limiter}))
+		protect := func(next http.Handler) http.Handler {
+			return limiter.Before(identityhttp.Authenticate(identities, limiter.After(next)))
+		}
+		messagehttp.Register(server, messages, protect)
+		messagehttp.RegisterRecovery(server, recovery, protect)
+		listener, e := net.Listen("tcp", "127.0.0.1:0")
+		if e != nil {
+			t.Fatal(e)
+		}
+		run, cancel := context.WithCancel(ctx)
+		done := make(chan error, 1)
+		go func() { done <- server.Run(run, listener) }()
+		t.Cleanup(func() {
+			hub.Drain()
+			cancel()
+			if e := <-done; e != nil {
+				t.Error(e)
+			}
+		})
+		return "ws://" + listener.Addr().String() + "/ws", hub
+	}
+	first, hub1 := start()
+	second, _ := start()
+	dial := func(url, token string) *websocket.Conn {
+		t.Helper()
+		deadline, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		socket, response, e := websocket.Dial(deadline, url, &websocket.DialOptions{Subprotocols: []string{"chat.v1"}, HTTPHeader: http.Header{"Origin": []string{"https://demo.test"}}})
+		if e != nil {
+			status := 0
+			if response != nil {
+				status = response.StatusCode
+			}
+			t.Fatal("WS dial", status, e)
+		}
+		t.Cleanup(func() { socket.CloseNow() })
+		if e = wsjson.Write(deadline, socket, map[string]any{"type": "auth", "request_id": uuid.NewString(), "payload": map[string]any{"access_token": token, "device_id": uuid.NewString()}}); e != nil {
+			t.Fatal(e)
+		}
+		var reply realtime.Frame
+		if e = wsjson.Read(deadline, socket, &reply); e != nil || reply.Type != "auth.ok" {
+			t.Fatal("auth reply", reply.Type, e)
+		}
+		return socket
+	}
+	receive := func(socket *websocket.Conn, kind string) realtime.Frame {
+		t.Helper()
+		deadline, cancel := context.WithTimeout(ctx, 8*time.Second)
+		defer cancel()
+		for {
+			var f realtime.Frame
+			if e := wsjson.Read(deadline, socket, &f); e != nil {
+				t.Fatal("waiting for", kind, e)
+			}
+			if f.Type == kind {
+				return f
+			}
+			if f.Type == "error" {
+				t.Fatal("unexpected error", string(f.Payload))
+			}
+		}
+	}
+	command := func(socket *websocket.Conn, kind string, p any) string {
+		t.Helper()
+		request := uuid.NewString()
+		deadline, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		if e := wsjson.Write(deadline, socket, map[string]any{"type": kind, "request_id": request, "conversation_id": conv.ID, "payload": p}); e != nil {
+			t.Fatal(e)
+		}
+		return request
+	}
+	subscribe := func(socket *websocket.Conn, after string) {
+		command(socket, "conversation.subscribe", map[string]any{"after_event_sequence": after})
+		receive(socket, "ack")
+		receive(socket, "sync.complete")
+	}
+	alice := dial(first, aToken)
+	bob := dial(second, bToken)
+	subscribe(alice, "0")
+	subscribe(bob, "0")
+	send := message.Send{ClientID: uuid.NewString(), Type: "TEXT", Content: message.Content{Text: "cross instance"}}
+	command(alice, "message.send", send)
+	ack := receive(alice, "ack")
+	var sent message.Sent
+	if json.Unmarshal(ack.Payload, &sent) != nil || sent.Status != "SENT" || sent.Message.Sequence != 1 {
+		t.Fatal("SENT receipt")
+	}
+	event := receive(bob, "message.created")
+	if event.Sequence != "1" {
+		t.Fatal("cross instance sequence", event.Sequence)
+	}
+	command(alice, "message.send", send)
+	again := receive(alice, "ack")
+	var duplicate message.Sent
+	json.Unmarshal(again.Payload, &duplicate)
+	if !duplicate.Deduplicated || duplicate.Message.ID != sent.Message.ID {
+		t.Fatal("WS resend duplicated")
+	}
+	// REST and WebSocket share the same committed send receipt and projections.
+	client := &http.Client{Timeout: 5 * time.Second}
+	defer client.CloseIdleConnections()
+	request := func(method, path, body string, want int) []byte {
+		t.Helper()
+		url := "http" + strings.TrimSuffix(strings.TrimPrefix(first, "ws"), "/ws") + path
+		req, e := http.NewRequestWithContext(ctx, method, url, strings.NewReader(body))
+		if e != nil {
+			t.Fatal(e)
+		}
+		req.Header.Set("Authorization", "Bearer "+aToken)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		res, e := client.Do(req)
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer res.Body.Close()
+		data, e := io.ReadAll(res.Body)
+		if e != nil || res.StatusCode != want {
+			t.Fatal("REST", method, path, res.StatusCode, want, string(data), e)
+		}
+		return data
+	}
+	collection := "/api/v1/conversations/" + conv.ID
+	data, _ := json.Marshal(send)
+	request("POST", collection+"/messages", string(data), 200)
+	request("GET", "/api/v1/messages/"+sent.Message.ID, "", 200)
+	request("GET", collection+"/messages?after_sequence=0&limit=1", "", 200)
+	request("GET", collection+"/search?q=cross", "", 200)
+	request("GET", collection+"/snapshot", "", 200)
+	request("GET", collection+"/events?after_event_sequence=999", "", 409)
+	request("POST", collection+"/read", "{}", 400)
+	request("POST", collection+"/delivered", `{"sequence":"0"}`, 200)
+	// Reconnect from last applied cursor does not replay the already applied message.
+	bob.CloseNow()
+	bob = dial(second, bToken)
+	subscribe(bob, event.EventSequence)
+	command(bob, "message.read", map[string]string{"sequence": "1"})
+	readAck := receive(bob, "ack")
+	var checkpoint message.Checkpoint
+	json.Unmarshal(readAck.Payload, &checkpoint)
+	if checkpoint.Read != 1 || checkpoint.Delivered != 1 {
+		t.Fatal("READ does not imply delivered")
+	}
+	ownSecond := dial(first, bToken)
+	subscribe(ownSecond, event.EventSequence)
+	snap, err := recovery.Snapshot(ctx, b, conv.ID)
+	if err != nil || snap.Checkpoint.Read != 1 || snap.MessageSequence != 1 || len(snap.Messages) != 1 {
+		t.Fatal("snapshot inconsistent", err)
+	}
+	// Out-of-order receipts across devices cannot regress or claim future messages.
+	if lower, e := recovery.Receipt(ctx, b, conv.ID, "read", 0); e != nil || lower.Read != 1 {
+		t.Fatal("read regressed", e)
+	}
+	if _, e := recovery.Receipt(ctx, b, conv.ID, "delivered", 2); e != policy.ErrInvalid {
+		t.Fatal("future receipt", e)
+	}
+	if _, e := recovery.Replay(ctx, b, conv.ID, 999, 50); e != message.ErrResync {
+		t.Fatal("future replay cursor", e)
+	}
+	// A disabled flag hides peer receipts without creating a gap in the event sequence.
+	if _, err = op.Exec(ctx, "UPDATE chat.project_settings SET flags=jsonb_set(flags,'{read_receipts}','false') WHERE project_id=$1", project); err != nil {
+		t.Fatal(err)
+	}
+	replay, err := recovery.Replay(ctx, a, conv.ID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hidden := false
+	for _, e := range replay.Events {
+		if e.Type == "sync.advance" {
+			hidden = true
+		}
+	}
+	if !hidden {
+		t.Fatal("disabled receipt exposed")
+	}
+	// Lease deletion must leave another device online; TTL expires crashed connections.
+	fake1, fake2 := uuid.NewString(), uuid.NewString()
+	if err = presence.Touch(ctx, a, fake1, uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
+	if err = presence.Touch(ctx, a, fake2, uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
+	presence.Drop(ctx, a, fake1)
+	statuses, err := presence.Statuses(ctx, b, conv.ID, []string{a.User.ID})
+	if err != nil || len(statuses) != 1 || !statuses[0].Online {
+		t.Fatal("multi-device presence", err)
+	}
+	if err = presence.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var seen *time.Time
+	if err = op.QueryRow(ctx, "SELECT last_seen_at FROM chat.users WHERE id=$1", a.User.ID).Scan(&seen); err != nil || seen == nil {
+		t.Fatal("last seen flush", err)
+	}
+	if err = presence.Typing(ctx, a, conv.ID, fake2, true); err != nil {
+		t.Fatal(err)
+	}
+	typers, err := presence.Typers(ctx, b, conv.ID)
+	if err != nil || len(typers) != 1 || typers[0] != a.User.ID {
+		t.Fatal("typing lease", err)
+	}
+	if err = presence.Typing(ctx, a, conv.ID, fake2, false); err != nil {
+		t.Fatal(err)
+	}
+	// Stop only this script-owned Redis fixture, then restore it for later checks.
+	fixture(t, "stop", "redis")
+	bounded, stopRedisCheck := context.WithTimeout(ctx, 2*time.Second)
+	if _, e := presence.Statuses(bounded, b, conv.ID, []string{a.User.ID}); e == nil {
+		t.Fatal("Redis outage fabricated presence")
+	}
+	stopRedisCheck()
+	if _, e := recovery.Snapshot(ctx, b, conv.ID); e != nil {
+		t.Fatal("Redis outage broke durable recovery", e)
+	}
+	fixture(t, "start", "redis")
+	eventually(t, func(ctx context.Context) bool { return clients.Redis.Ping(ctx).Err() == nil })
+	// Leave revokes all devices; no subsequent reference/content may be delivered.
+	memberships := &conversation.MembershipService{Store: convStore}
+	if err = memberships.Remove(ctx, b, conv.ID, b.User.ID, trace); err != nil {
+		t.Fatal(err)
+	}
+	receive(bob, "subscription.revoked")
+	receive(ownSecond, "subscription.revoked")
+	command(bob, "message.send", message.Send{ClientID: uuid.NewString(), Type: "TEXT", Content: message.Content{Text: "forbidden"}})
+	denied := receive(bob, "error")
+	var code map[string]any
+	json.Unmarshal(denied.Payload, &code)
+	if code["code"] != "RESOURCE_NOT_FOUND" {
+		t.Fatal("leave allowed send")
+	}
+	// Logout invalidates an already-open socket, even when it has no new commands.
+	verifier.mu.Lock()
+	delete(verifier.identities, bToken)
+	verifier.mu.Unlock()
+	deadline, cancel := context.WithTimeout(ctx, 6*time.Second)
+	for {
+		_, _, e := bob.Read(deadline)
+		if e != nil {
+			if websocket.CloseStatus(e) != 4401 {
+				t.Fatal("revoked close", e)
+			}
+			break
+		}
+	}
+	cancel()
+	// Expiry timer closes another valid session independently of traffic.
+	short := tokenFor("alice", time.Now().Add(3*time.Second))
+	expiring := dial(second, short)
+	deadline, cancel = context.WithTimeout(ctx, 7*time.Second)
+	for {
+		_, _, e := expiring.Read(deadline)
+		if e != nil {
+			if websocket.CloseStatus(e) != 4401 {
+				t.Fatal("expiry close", e)
+			}
+			break
+		}
+	}
+	cancel()
+	// Origin/query-token boundaries fail before authentication/upgrading.
+	for _, item := range []struct{ url, origin string }{{first, "https://evil.test"}, {first, ""}, {first + "?access_token=forbidden", "https://demo.test"}} {
+		deadline, cancel = context.WithTimeout(ctx, 3*time.Second)
+		socket, response, e := websocket.Dial(deadline, item.url, &websocket.DialOptions{Subprotocols: []string{"chat.v1"}, HTTPHeader: http.Header{"Origin": []string{item.origin}}})
+		cancel()
+		if e == nil {
+			socket.CloseNow()
+			t.Fatal("unsafe handshake accepted")
+		}
+		if response == nil || (response.StatusCode != 403 && response.StatusCode != 400) {
+			t.Fatal("unsafe handshake status")
+		}
+	}
+	// Explicit Hub drain closes hijacked sockets and joins their goroutines.
+	drained := make(chan struct{})
+	go func() { hub1.Drain(); close(drained) }()
+	receive(alice, "server.draining")
+	select {
+	case <-drained:
+	case <-time.After(8 * time.Second):
+		t.Fatal("WS drain hung")
+	}
+}

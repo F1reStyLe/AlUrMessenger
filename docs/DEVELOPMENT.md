@@ -28,7 +28,10 @@ Linux/macOS: `APP_ENV=development go run ./cmd/dev-init`, затем та же �
 дополнительно ограничивается ACL ОС. Не размещайте секреты в общедоступном каталоге.
 CHAT_SECRET_DIR позволяет использовать другой подготовленный каталог вместе с `dev-init --dir`.
 
-Compose выполняет отдельные одноразовые jobs: migrate, minio-init, minio-account и kafka-init.
+Compose выполняет одноразовые jobs: migrate, minio-init, minio-account, kafka-init и kafka-topics.
+Последний создаёт chat.events.v1 без auto-create broker (3 partitions, local replication=1).
+API требует CONTENT_KEYS_FILE; dev-init дополняет существующий secret directory файлом
+content-keys.json без перезаписи прежних ключей. Сохраните его backup отдельно от базы.
 Kafka-init назначает корневой каталог нового volume uid 1000 без рекурсивного chown;
 сам broker не запускается от root.
 API/worker стартуют после них и после healthy dependencies. Runtime получает только свои secrets;

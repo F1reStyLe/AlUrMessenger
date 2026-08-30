@@ -4,7 +4,11 @@ Domain schema ниже — проект Phase 0. Реализованы migratio
 runtime privileges/goose tracking и `projects`/`users` с tenant uniqueness/FK.
 Migration 3 добавляет project_settings и append-only audit_logs; runtime не меняет audit rows.
 Migration 4 добавляет users.role (user/admin) и запрещает runtime INSERT/UPDATE этой колонки.
-Остальные таблицы ниже остаются планом последующих шагов.
+Migrations 5–6: conversations, direct_pairs, conversation_members и защита moderator/DIRECT.
+Migration 7: encrypted messages, message_idempotency, message_search, conversation_events,
+outbox_events, consumer_inbox и независимые message/event counters.
+Migration 8: membership READ/DELIVERED checkpoints; last_seen_at из Foundation используется batch worker.
+Имена/constraints реализованной схемы — в SQL migrations; остальные таблицы ниже остаются планом.
 PostgreSQL — source of truth. [Текущая миграция](migrations/00001_foundation.sql).
 Все UUID выдаются приложением; timestamp — timestamptz UTC. BIGINT sequences в JSON передаются
 десятичными строками, чтобы JavaScript не терял точность. Soft-deleted/expired данные не выдаются

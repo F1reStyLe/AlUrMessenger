@@ -53,6 +53,13 @@ try {
     $rsa = [Security.Cryptography.RSA]::Create(2048)
     try { [IO.File]::WriteAllText($publicKey,$rsa.ExportSubjectPublicKeyInfoPem()) } finally { $rsa.Dispose() }
     $createdFiles += $publicKey
+    $contentKeys = Join-Path $secretDir 'content-keys.json'
+    $keyConfig = @{active_encryption='v1';active_search='v1';active_fingerprint='v1'}
+    foreach ($purpose in @('encryption','search','fingerprint')) {
+        $keyConfig[$purpose+'_keys'] = @{v1=[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()}
+    }
+    [IO.File]::WriteAllText($contentKeys,($keyConfig | ConvertTo-Json -Depth 3))
+    $createdFiles += $contentKeys
     Set-TestEnv ALUR_TEST_SECRETS $secretDir.Replace('\','/')
     Set-TestEnv ALUR_TEST_PG_PORT (Get-TestPort)
     Set-TestEnv ALUR_TEST_REDIS_PORT (Get-TestPort)
@@ -99,7 +106,7 @@ try {
     }
     $runtimeEnv = Join-Path $secretDir 'runtime.env'
     $runtimeSettings = @(
-        'APP_ENV=test', 'HTTP_ADDR=0.0.0.0:8080', 'INFRA_TIMEOUT=5s', 'AUTH_MODE=dev-rsa', 'AUTH_PUBLIC_KEY_FILE=/jwt-public.pem',
+        'APP_ENV=test', 'HTTP_ADDR=0.0.0.0:8080', 'INFRA_TIMEOUT=5s', 'AUTH_MODE=dev-rsa', 'AUTH_PUBLIC_KEY_FILE=/jwt-public.pem', 'CONTENT_KEYS_FILE=/content-keys.json',
         "POSTGRES_URL=postgres://alur_runtime:$($secrets['postgres-runtime'])@postgres:5432/alur?sslmode=disable",
         "REDIS_URL=redis://:$($secrets['redis'])@redis:6379/0",
         'KAFKA_BROKERS=kafka:29092', 'KAFKA_SECURITY_PROTOCOL=PLAINTEXT',
@@ -111,7 +118,7 @@ try {
     foreach ($role in @('api','worker')) {
         $container = "$project-$role-smoke"
         try {
-            & docker run -d --name $container --label "com.docker.compose.project=$project" --network "${project}_default" --read-only --cap-drop ALL --security-opt no-new-privileges --user 65534:65534 --mount "type=bind,source=$secretDir/chat-$role,target=/chat,readonly" --mount "type=bind,source=$publicKey,target=/jwt-public.pem,readonly" --env-file $runtimeEnv --entrypoint /chat golang:1.25-bookworm
+            & docker run -d --name $container --label "com.docker.compose.project=$project" --network "${project}_default" --read-only --cap-drop ALL --security-opt no-new-privileges --user 65534:65534 --mount "type=bind,source=$secretDir/chat-$role,target=/chat,readonly" --mount "type=bind,source=$publicKey,target=/jwt-public.pem,readonly" --mount "type=bind,source=$contentKeys,target=/content-keys.json,readonly" --env-file $runtimeEnv --entrypoint /chat golang:1.25-bookworm
             if ($LASTEXITCODE -ne 0) { throw 'Runtime container failed' }
             & docker exec $container curl --silent --show-error --fail --retry 10 --retry-connrefused --retry-delay 1 --max-time 3 http://127.0.0.1:8080/health/ready
             if ($LASTEXITCODE -ne 0) { throw 'Runtime readiness failed' }
