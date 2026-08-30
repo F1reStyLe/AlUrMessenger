@@ -81,7 +81,7 @@ func Initialize(environment, directory string) error {
 			return errors.New("DEV_SECRET_UNAVAILABLE")
 		}
 	}
-	return nil
+	return initializeKey(directory)
 }
 
 // create использует O_EXCL, поэтому конкурентный initializer никогда не заменит

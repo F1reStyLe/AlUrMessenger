@@ -24,6 +24,7 @@ import (
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/migration"
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/objectstore"
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/postgres"
+	"github.com/F1reStyLe/AlUrMessenger/migrations"
 	"github.com/jackc/pgx/v5"
 	"github.com/minio/minio-go/v7"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -99,7 +100,7 @@ func TestInfrastructureLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if version, err := migration.Run(t.Context(), migrationURL, "up"); err != nil || version != 1 {
+	if version, err := migration.Run(t.Context(), migrationURL, "up"); err != nil || version != migrations.Version {
 		t.Fatal("migration repeat failed")
 	}
 	if err := postgres.Check(t.Context(), pg); err != nil {
@@ -130,6 +131,7 @@ func TestInfrastructureLifecycle(t *testing.T) {
 		t.Fatal("schema restore failed")
 	}
 	adminCfg := cfg.Storage
+	t.Run("identity", func(t *testing.T) { testIdentity(t, pg, migrator) })
 	adminCfg.AccessKey = "test-root"
 	adminCfg.SecretKey = os.Getenv("ALUR_TEST_MINIO_ADMIN")
 	admin, err := objectstore.Open(adminCfg, cfg.Timeout)

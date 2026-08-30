@@ -50,3 +50,5 @@ volumes: новые credentials не совпадут с инициализир�
 Ожидаемые завершённые jobs отображаются как Exited (0), API/worker — healthy.
 SIGTERM инициирует HTTP drain и cleanup; Compose предоставляет 25 секунд до принудительной остановки.
 Readiness пока подтверждает инфраструктуру; готовность полного чата зависит от следующих фаз.
+# Identity/seed: после запуска core выполните `docker compose run --rm --build seed`.
+# JWT выдаётся локальной dev-only командой; см. [IDENTITY.md](IDENTITY.md).

@@ -1,6 +1,8 @@
 # REST и Internal API
 
-Проект контрактов Phase 0. Сейчас реализованы только process/infrastructure probes шагов 1.1–1.2 ниже.
+Проект контрактов Phase 0. Реализованы process/infrastructure probes и Identity API 1.4:
+GET/PATCH `/api/v1/me`, GET `/api/v1/users`, GET `/api/v1/users/{user_id}`.
+Точный текущий контракт/ошибки — OpenAPI; [auth/provisioning](docs/IDENTITY.md).
 Реализуемые endpoints сопровождаются machine-readable OpenAPI
 в `api/openapi/`; локальный Swagger UI на `/docs/api` запланирован на шаг 1.6 и пока отсутствует.
 Этот документ не означает готовность endpoint.

@@ -4,9 +4,10 @@
 MinIO, REST, WebSocket и внутренний gRPC. Frontend — простые Admin и Demo на Vue 3/TypeScript/Vite.
 
 Проект начат заново по решению пользователя. Предыдущая реализация удалена; Git history сохранена.
-Phase 0 завершена; реализованы **шаги 1.1–1.3 Foundation**: API/worker, конфигурация,
+Phase 0 завершена; реализованы **шаги 1.1–1.4 Foundation**: API/worker, конфигурация,
 логи, HTTP lifecycle, PostgreSQL/Redis/Kafka/MinIO adapters и отдельные команды миграций/init.
-Добавлен development Compose с отдельными init jobs. Чата, JWT, domain tables, jobs и frontend пока нет.
+Добавлены development Compose, Project/User, внешний JWT verifier, профили и dev seed/token.
+Чата, jobs и frontend пока нет. [Identity API и запуск seed](docs/IDENTITY.md).
 Readiness подтверждает готовность инфраструктуры, а не всего Chat API.
 
 ## Локальный запуск
@@ -69,7 +70,7 @@ Redis, Kafka и private MinIO; иначе `503` с кодом `DEPENDENCY_UNAVAI
 Каждый ответ middleware содержит X-Request-ID; безопасный ID также есть в error envelope и structured log.
 Ошибки HTTP-парсера/лимита headers до middleware могут не иметь этих headers и JSON envelope.
 Текущий [OpenAPI JSON](api/openapi/openapi.json) описывает только реально доступные probes;
-Swagger UI и business API добавляются в следующих шагах Foundation.
+Identity API описан в [OpenAPI](api/openapi/openapi.json); Swagger UI добавляется в 1.6.
 
 ## Конфигурация и остановка
 
@@ -157,8 +158,7 @@ Redis TTL, Kafka produce/consume, приватность S3, сбой и вос�
 
 ## Следующий этап
 
-Следующий шаг **1.4**: JWT/Project/User/dev seed. Затем policies/limits (1.5)
-и Swagger UI/приёмочные проверки (1.6).
+Следующий шаг **1.5**: policies/limits; затем Swagger UI/приёмочные проверки (1.6).
 Foundation целиком пока не завершена.
 
 Целевой локальный процесс — clone → development configuration/secret initialization →

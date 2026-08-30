@@ -3,6 +3,10 @@ package app
 
 import (
 	"context"
+	"github.com/F1reStyLe/AlUrMessenger/internal/auth"
+	"github.com/F1reStyLe/AlUrMessenger/internal/identity"
+	"github.com/F1reStyLe/AlUrMessenger/internal/identity/repository"
+	identityhttp "github.com/F1reStyLe/AlUrMessenger/internal/identity/transport"
 	"io"
 	"log/slog"
 	"net"
@@ -77,7 +81,16 @@ func run(ctx context.Context, service config.Service, output io.Writer) (exitCod
 		}
 	}()
 	server := httpserver.New(cfg.HTTP, cfg.ShutdownTimeout, logger, clients.Check)
-	logger.Info("service starting", "capability", "infrastructure_probes_only")
+	if service == config.API {
+		store := &repository.Store{DB: clients.Postgres}
+		verifier, err := auth.Load(os.Getenv("AUTH_PUBLIC_KEY_FILE"), store)
+		if err != nil {
+			logger.Error("authentication configuration rejected")
+			return 1
+		}
+		identityhttp.Register(server, &identity.Service{Verifier: verifier, Store: store}, nil)
+	}
+	logger.Info("service starting")
 	if err := server.Run(ctx, listener); err != nil {
 		logger.Error("service stopped with error", "error_code", "LIFECYCLE_FAILED")
 		return 1

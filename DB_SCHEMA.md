@@ -1,7 +1,8 @@
 # Модель данных
 
-Domain schema ниже — проект Phase 0. В 1.2 реализована только migration 1: schema `chat`,
-runtime privileges и goose version tracking; business tables появятся начиная с 1.4.
+Domain schema ниже — проект Phase 0. Реализованы migrations 1–2: schema `chat`,
+runtime privileges/goose tracking и `projects`/`users` с tenant uniqueness/FK.
+Остальные таблицы ниже остаются планом последующих шагов.
 PostgreSQL — source of truth. [Текущая миграция](migrations/00001_foundation.sql).
 Все UUID выдаются приложением; timestamp — timestamptz UTC. BIGINT sequences в JSON передаются
 десятичными строками, чтобы JavaScript не терял точность. Soft-deleted/expired данные не выдаются

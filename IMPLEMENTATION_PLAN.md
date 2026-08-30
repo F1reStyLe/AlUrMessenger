@@ -40,7 +40,8 @@ PostgreSQL/Redis/Kafka/MinIO с временными данными, никог�
 adapters, отдельные migrate/minio-init commands и unit/integration tests.
 Выполненные runtime проверки фиксируются в README/локальном журнале; вся Phase 1 ещё не завершена.
 Шаг 1.3 добавляет development Compose/Dockerfiles/dev-init с постоянными volumes и отдельными jobs.
-Следующий шаг — 1.4. Бизнес-endpoints пока отсутствуют; test fixture Compose
+Шаг 1.4 выполнен: Project/User/JWT/профили/provisioning/seed, unit + repository security tests.
+Следующий шаг — 1.5. Реализованные identity endpoints описаны в OpenAPI; test fixture Compose
 находится в test/integration. Readiness возвращает 200 только при доступных четырёх зависимостях
 и ожидаемой schema. Текущие probes описаны в `api/openapi/openapi.json`.
 

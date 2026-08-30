@@ -172,3 +172,16 @@ Dev-init разрешён только при APP_ENV=development. Секрет�
 mode 0700, secret files readable для непривилегированного контейнера. Для Windows применяются
 ACL хоста. Используется [выдача Compose secrets отдельным сервисам](https://docs.docker.com/compose/how-tos/use-secrets/),
 а не полный mount каталога с чужими credentials. Не выдаём такой development deployment за production.
+## D29 — Foundation identity: RS256, trusted Project bindings, atomic provisioning
+
+Принято в 1.4. Внешний Auth отвечает за `sub/project_id/roles`; Chat проверяет RS256,
+issuer/audience из operator-managed Project, exp/nbf/iat и token_use=access (skew 30s).
+Для MVP используется локальный RSA public key >=2048 bits; rotation через restart.
+JWKS не требуется для текущего единого Auth trust domain, но понадобится перед подключением
+независимых issuers. Заголовки JWT не выбирают URL/key source. Private key только dev-token.
+Project CLI использует migration credentials; публичного provisioning endpoint нет.
+Уникальность `(project_id, external_user_id)` и atomic upsert исключают дубли при первом входе.
+Профиль не перезаписывается JWT claims. Actor IDs отсутствуют в PATCH DTO. Bans read-only;
+проверка под Project shared lock/user lock вместе с изменением профиля. Runtime auth bindings
+недоступны для UPDATE; UPDATE(updated_at) разрешён только как prerequisite row locks.
+Seed/dev-token требуют development, seed не меняет существующие профили, roles не хранятся в users.

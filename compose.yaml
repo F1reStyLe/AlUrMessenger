@@ -124,12 +124,26 @@ services:
     depends_on: {postgres: {condition: service_healthy}}
   chat-api:
     <<: *runtime
+    environment:
+      <<: *runtime-env
+      AUTH_PUBLIC_KEY_FILE: /run/secrets/auth_public_key
+    secrets: [postgres_url,redis_url,minio_access_key,minio_runtime_password,auth_public_key]
     build: {context: ., target: api}
     ports: ["127.0.0.1:${CHAT_API_PORT:-8080}:8080"]
   chat-worker:
     <<: *runtime
     build: {context: ., target: worker}
     ports: ["127.0.0.1:${CHAT_WORKER_PORT:-8081}:8080"]
+  seed:
+    profiles: [tools]
+    build: {context: ., target: api}
+    entrypoint: [/app/seed]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment: {APP_ENV: development, MIGRATION_POSTGRES_URL_FILE: /run/secrets/migration_postgres_url}
+    secrets: [migration_postgres_url]
+    depends_on: {migrate: {condition: service_completed_successfully}}
 
 volumes:
   pg-data:
@@ -137,6 +151,7 @@ volumes:
   kafka-data:
   minio-data:
 secrets:
+  auth_public_key: {file: "${CHAT_SECRET_DIR:-.local}/jwt-public.pem"}
   pg_admin_password: {file: "${CHAT_SECRET_DIR:-.local}/pg-admin-password"}
   pg_runtime_password: {file: "${CHAT_SECRET_DIR:-.local}/pg-runtime-password"}
   pg_migration_password: {file: "${CHAT_SECRET_DIR:-.local}/pg-migration-password"}
