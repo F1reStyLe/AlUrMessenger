@@ -12,6 +12,7 @@ import (
 
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/config"
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/httpserver"
+	"github.com/F1reStyLe/AlUrMessenger/internal/platform/infrastructure"
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/logging"
 )
 
@@ -27,7 +28,7 @@ func Main(service config.Service) int {
 // run собирает процесс в порядке config → logger → listener → server.
 // Отдельные context/output позволяют проверять запуск без сигналов и глобального stdout.
 // После передачи listener в Run его закрытие становится ответственностью сервера.
-func run(ctx context.Context, service config.Service, output io.Writer) int {
+func run(ctx context.Context, service config.Service, output io.Writer) (exitCode int) {
 	cfg, err := config.Load(service)
 	if err != nil {
 		// Config diagnostics never include supplied environment values.
@@ -40,20 +41,46 @@ func run(ctx context.Context, service config.Service, output io.Writer) int {
 	if ctx.Err() != nil {
 		return 0
 	}
+	// Валидируем секреты/адреса до bind; конфигурация мигратора сюда не загружается.
+	infraConfig, err := config.LoadInfrastructure(cfg.Environment)
+	if err != nil {
+		logger.Error("infrastructure configuration rejected", "error", err.Error())
+		return 1
+	}
 	listener, err := net.Listen("tcp", cfg.HTTP.Address)
 	if err != nil {
 		// Системная ошибка может содержать детали окружения; наружу идёт только код.
 		logger.Error("http listener failed", "error_code", "LISTEN_FAILED")
 		return 1
 	}
-	// No business handlers/jobs are installed until their phase is implemented.
-	// Nil readiness accurately reports that the service is not yet configured.
-	server := httpserver.New(cfg.HTTP, cfg.ShutdownTimeout, logger, nil)
-	logger.Info("service starting", "capability", "process_probes_only")
+	// На ошибке startup порт освобождается даже до передачи listener в server.Run.
+	defer listener.Close()
+	clients, err := infrastructure.Open(ctx, infraConfig)
+	if err != nil {
+		if ctx.Err() != nil {
+			return 0
+		}
+		logger.Error("infrastructure startup failed", "error_code", err.Error())
+		return 1
+	}
+	// HTTP drain завершается раньше закрытия зависимостей. Background context нужен,
+	// потому что signal context на этой стадии уже отменён. Cleanup имеет свой budget.
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+		defer cancel()
+		if err := clients.Close(cleanup); err != nil {
+			logger.Error("infrastructure shutdown failed", "error_code", err.Error())
+			exitCode = 1
+		} else if exitCode == 0 {
+			// Штатное завершение подтверждаем только после освобождения зависимостей.
+			logger.Info("service stopped")
+		}
+	}()
+	server := httpserver.New(cfg.HTTP, cfg.ShutdownTimeout, logger, clients.Check)
+	logger.Info("service starting", "capability", "infrastructure_probes_only")
 	if err := server.Run(ctx, listener); err != nil {
 		logger.Error("service stopped with error", "error_code", "LIFECYCLE_FAILED")
 		return 1
 	}
-	logger.Info("service stopped")
 	return 0
 }

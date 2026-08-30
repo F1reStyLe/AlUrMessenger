@@ -117,3 +117,45 @@ Access logs содержат только method, route pattern, status, bytes, 
 Raw URL/query/body/headers, panic values/stack и free-form net/http errors не логируются;
 transport diagnostics сводятся к стабильному error_code. Это сознательный компромисс до введения
 безопасных подробных infrastructure diagnostics: секреты не должны попадать в stdout.
+
+## D25 — Foundation 1.2: adapters и administrative commands (2026-08-30)
+
+Закреплены pgx/v5 v5.10.0, goose/v3 v3.27.3, go-redis/v9 v9.22.0, franz-go v1.21.6,
+minio-go/v7 v7.3.0; версии проверены через Go module metadata и сборку Go 1.27.
+Используются официальные clients: [go-redis](https://github.com/redis/go-redis),
+[franz-go](https://github.com/twmb/franz-go), [minio-go](https://github.com/minio/minio-go).
+
+Миграции — отдельный `cmd/migrate`, embedded SQL и [goose Provider с session advisory lock](https://pressly.github.io/goose/documentation/provider/).
+Runtime не вызывает goose и не получает migration credentials. Первая миграция создаёт schema
+chat и grants, без фиктивных Project/User tables до 1.4. Runtime использует read-only schema check;
+неверная версия, в том числе будущая, закрывает startup/readiness.
+Отдельный `cmd/minio-init` создаёт bucket только по явному вызову, не изменяет существующую policy.
+MinIO runtime требует GetBucketPolicy и IAM rights одного bucket, но не SetBucketPolicy/CreateBucket.
+
+Для секретов добавлены NAME/NAME_FILE с отказом при конфликте и bounded file read.
+Production требует PostgreSQL verify-full, Redis TLS/password, Kafka SASL_SSL/SCRAM-SHA-256,
+MinIO HTTPS. Небезопасные query TLS overrides не допускаются. Local fixture TLS не проверяет;
+production provisioning/certificates/ACL не объявляются готовыми.
+
+## D26 — Foundation 1.2: граница readiness и проверок (2026-08-30)
+
+Пока нет бизнес-обработчиков, readiness обеих ролей консервативно требует все четыре adapters.
+Это временное отклонение от будущей capability/degraded политики ARCHITECTURE: после появления
+write paths Kafka outage не должен лишать возможности PostgreSQL/outbox commit. Переключение
+политики выполняется вместе с реальными use cases, а не фиктивными фоновыми workers.
+Kafka metadata check не доказывает topic ACL/consumer readiness; реальные produce/consume
+проверены отдельно в integration fixture. MinIO bucket policy должна быть пустой; сложные IAM
+условия не анализируются. Отдельно проверяется anonymous GET и запрет policy changes runtime.
+
+HTTP drain и инфраструктурный cleanup имеют отдельные ограниченные budgets. Клиенты закрываются
+после HTTP; будущие jobs/producer flush должны завершиться до этого. На текущем шаге собственных
+business loops нет; закрываются SDK goroutines/connections. Liveness не зависит от сети.
+Fixtures создают только новый Compose project со своими volumes, не используют чужие данные.
+
+## D27 — MinIO Community: обнаруженный риск поддержки (2026-08-30)
+
+[Официальный MinIO repository](https://github.com/minio/minio) архивирован и помечен как
+неподдерживаемый. Технологию из ТЗ не заменяем без отдельного решения: S3 adapter реализован,
+но legacy pinned server используется только в изолированных local tests. Production storage
+нужно выбрать/подтвердить отдельно с учётом поддержки и security maintenance.
+Production готовность такого MinIO не заявляется. Пользователь уведомлён о риске в ходе шага.

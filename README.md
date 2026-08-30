@@ -4,17 +4,29 @@
 MinIO, REST, WebSocket и внутренний gRPC. Frontend — простые Admin и Demo на Vue 3/TypeScript/Vite.
 
 Проект начат заново по решению пользователя. Предыдущая реализация удалена; Git history сохранена.
-Phase 0 завершена; реализован **шаг 1.1 Foundation**: Go-модуль, процессы API/worker,
-typed configuration, структурированные логи, HTTP errors/probes и graceful shutdown с тестами.
-Это локальный process bootstrap: чата, JWT, БД, jobs, frontend и Docker Compose пока нет.
-Readiness намеренно возвращает **503**, пока зависимости не реализованы. Не использовать как готовый сервис.
+Phase 0 завершена; реализованы **шаги 1.1–1.2 Foundation**: API/worker, конфигурация,
+логи, HTTP lifecycle, PostgreSQL/Redis/Kafka/MinIO adapters и отдельные команды миграций/init.
+Чата, JWT, domain tables, jobs и frontend пока нет; deployment Compose — шаг 1.3.
+Readiness подтверждает готовность инфраструктуры, а не всего Chat API.
 
 ## Локальный запуск
 
 Toolchain закреплён на Go 1.27.0. Установленный Go с `GOTOOLCHAIN=auto` загрузит его по go.mod;
 при отключённой автоматической загрузке установите нужный toolchain отдельно.
 Выбор версии: [официальные релизы Go](https://go.dev/dl/).
-В этом шаге нет внешних Go dependencies и go.sum не требуется.
+Версии клиентов закреплены в go.mod/go.sum. Инфраструктура и credentials теперь обязательны;
+одного APP_ENV недостаточно. Подготовка сервисов, секретов и migrations описана в
+[инструкции Foundation 1.2](docs/INFRASTRUCTURE.md).
+
+Воспроизводимая проверка с отдельными тестовыми сервисами (PowerShell 7, Docker и C compiler):
+
+```powershell
+./scripts/test-infrastructure.ps1
+```
+
+Скрипт сам создаёт и удаляет только свой test fixture. Для обычного запуска ниже заранее
+подготовьте зависимости, примените `go run ./cmd/migrate up`, выполните `go run ./cmd/minio-init`
+с правами оператора и передайте runtime environment отдельно каждому процессу.
 
 PowerShell, из корня репозитория, в первом терминале:
 
@@ -41,7 +53,8 @@ curl.exe -i http://127.0.0.1:8080/health/ready
 curl.exe -i http://127.0.0.1:8081/health/live
 ```
 
-Liveness: `200 {"status":"ok"}`. Readiness: `503` с кодом `DEPENDENCY_UNAVAILABLE`.
+Liveness: `200 {"status":"ok"}`. Readiness: `200 {"status":"ready"}` при доступных PostgreSQL/schema,
+Redis, Kafka и private MinIO; иначе `503` с кодом `DEPENDENCY_UNAVAILABLE`.
 Неизвестные routes → JSON 404, недопустимый метод probe → JSON 405. Поддерживаются GET/HEAD.
 Каждый ответ middleware содержит X-Request-ID; безопасный ID также есть в error envelope и structured log.
 Ошибки HTTP-парсера/лимита headers до middleware могут не иметь этих headers и JSON envelope.
@@ -67,14 +80,17 @@ development/test/production. Неверные/пустые заданные зн
 | HTTP_MAX_HEADER_BYTES | 32768; 1024–1048576 |
 | HTTP_MAX_BODY_BYTES | 1048576; 1–16777216, включая chunked JSON requests |
 
-Все duration settings ограничены 1ms–10m. Production bootstrap допускает только loopback HTTP
-и JSON logs: TLS/authentication deployment ещё не реализован. JWT/POSTGRES/REDIS/KAFKA/MINIO/
-ENCRYPTION/CORS/RATE_LIMIT/UPLOAD/RETENTION/WEBHOOK config вводится вместе с соответствующими
-компонентами, а не фиктивными секретами для несуществующих подключений.
+Указанные application duration settings ограничены 1ms–10m. Production bootstrap допускает
+только loopback HTTP и JSON logs: TLS/authentication deployment ещё не реализован.
+Настройки POSTGRES/REDIS/KAFKA/MINIO, INFRA_TIMEOUT и secret files описаны в
+[инфраструктурной инструкции](docs/INFRASTRUCTURE.md). JWT/ENCRYPTION/CORS/RATE_LIMIT/
+UPLOAD/RETENTION/WEBHOOK config вводится вместе с соответствующими компонентами.
 
 Ctrl+C/SIGTERM запускает drain: readiness снимается, новые соединения/запросы не принимаются,
 текущие HTTP handlers получают время завершиться. По deadline contexts отменяются, connections
 закрываются и процесс завершается с кодом 1. Нормальная остановка — 0; startup/bind failure — 1.
+После HTTP drain зависимости закрываются с отдельным budget APP_SHUTDOWN_TIMEOUT;
+ошибка cleanup также даёт код 1.
 Handler/use case обязан реагировать на context cancellation. WS/gRPC/jobs получат свой drain
 при реализации; текущий shutdown не выдаётся за проверку отсутствующих компонентов.
 
@@ -99,14 +115,15 @@ Race detector требует поддерживаемую платформу и 
 проверяют config/fail-fast, request IDs, redaction, JSON/size limits и lifecycle на настоящем
 loopback listener, включая drain и принудительную остановку по deadline.
 
-Для шага 1.1 проверки выше пройдены. Собранные API/worker запущены в Windows и Linux;
-в Linux дополнительно проверена остановка PID 1 по SIGTERM с кодом выхода 0 у обоих процессов.
+Infrastructure suite дополнительно проверяет concurrent/idempotent migrations, запрет DDL runtime,
+Redis TTL, Kafka produce/consume, приватность S3, сбой и восстановление каждой зависимости.
 
 ## Документы
 
 | Документ | Содержание |
 | --- | --- |
 | [Исходное ТЗ](docs/REQUIREMENTS.md) | Полный перечень требований и acceptance criteria |
+| [Инфраструктура 1.2](docs/INFRASTRUCTURE.md) | Секреты, миграции, readiness, fixture и ограничения MinIO |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Modular monolith, модули, API/worker, потоки и масштабирование |
 | [DECISIONS.md](DECISIONS.md) | Принятые решения и компромиссы |
 | [DB_SCHEMA.md](DB_SCHEMA.md) | Таблицы, tenant constraints, sequence, outbox и cleanup |
@@ -130,8 +147,7 @@ loopback listener, включая drain и принудительную оста
 
 ## Следующий этап
 
-Следующий шаг **1.2**: PostgreSQL/pgx/goose, Redis, Kafka KRaft и private MinIO,
-инфраструктурные adapters, migration command и проверки зависимостей. Затем Compose (1.3),
+Следующий шаг **1.3**: deployment Compose core, Dockerfiles и dev initialization. Затем
 JWT/Project/User/dev seed (1.4), policies/limits (1.5) и оставшаяся документация/проверки (1.6).
 Foundation целиком пока не завершена.
 
@@ -146,4 +162,4 @@ chat-api, chat-worker, admin-web, demo-web. Production secrets и TLS не бе�
 записываются после каждого шага в локальный `Agents.md` (исключён из Git). В versioned документации
 поддерживаются актуальные contracts и статус фазы. Commit и push — только по прямому требованию.
 
-История решений и локальный журнал отличают уже проверенный шаг 1.1 от будущих возможностей MVP.
+История решений и локальный журнал отличают выполненные шаги от будущих возможностей MVP.

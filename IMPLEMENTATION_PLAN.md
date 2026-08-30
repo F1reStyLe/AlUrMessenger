@@ -36,10 +36,12 @@ PostgreSQL/Redis/Kafka/MinIO с временными данными, никог�
 
 ## Phase 1 — Foundation
 
-Шаг 1.1 реализован: Go bootstrap/API/worker, config/logging/HTTP lifecycle, probes и unit tests.
+Шаги 1.1–1.2 реализованы: bootstrap/API/worker, config/logging/HTTP lifecycle, infrastructure
+adapters, отдельные migrate/minio-init commands и unit/integration tests.
 Выполненные runtime проверки фиксируются в README/локальном журнале; вся Phase 1 ещё не завершена.
-Следующий шаг — 1.2. Бизнес-endpoints, подключения к инфраструктуре и Compose отсутствуют;
-readiness каркаса возвращает 503. Текущие probes описаны в `api/openapi/openapi.json`.
+Следующий шаг — 1.3. Бизнес-endpoints и deployment Compose отсутствуют; test fixture Compose
+находится в test/integration. Readiness возвращает 200 только при доступных четырёх зависимостях
+и ожидаемой schema. Текущие probes описаны в `api/openapi/openapi.json`.
 
 Затрагиваются: go.mod, cmd/api/worker/migrate/project/dev-token/seed, internal/platform,
 auth/projects/users/feature_flags/audit, migrations, deploy, compose.yaml, .env.example, OpenAPI, README.

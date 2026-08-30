@@ -1,6 +1,8 @@
 # Модель данных
 
-Проект schema Phase 0, не готовые SQL migrations. PostgreSQL — source of truth.
+Domain schema ниже — проект Phase 0. В 1.2 реализована только migration 1: schema `chat`,
+runtime privileges и goose version tracking; business tables появятся начиная с 1.4.
+PostgreSQL — source of truth. [Текущая миграция](migrations/00001_foundation.sql).
 Все UUID выдаются приложением; timestamp — timestamptz UTC. BIGINT sequences в JSON передаются
 десятичными строками, чтобы JavaScript не терял точность. Soft-deleted/expired данные не выдаются
 обычным API даже до физической очистки.

@@ -1,18 +1,21 @@
 # REST и Internal API
 
-Проект контрактов Phase 0. Сейчас реализованы только process probes шага 1.1 ниже.
+Проект контрактов Phase 0. Сейчас реализованы только process/infrastructure probes шагов 1.1–1.2 ниже.
 Реализуемые endpoints сопровождаются machine-readable OpenAPI
 в `api/openapi/`; локальный Swagger UI на `/docs/api` запланирован на шаг 1.6 и пока отсутствует.
 Этот документ не означает готовность endpoint.
 WS использует те же application services и правила: [WEBSOCKET_PROTOCOL.md](WEBSOCKET_PROTOCOL.md).
 
-## Уже реализовано: process probes, шаг 1.1
+## Уже реализовано: process/infrastructure probes, шаги 1.1–1.2
 
-GET/HEAD `/health/live` → 200; GET/HEAD `/health/ready` → 503, пока dependencies не настроены.
+GET/HEAD `/health/live` → 200; GET/HEAD `/health/ready` → 200 при успешной проверке
+PostgreSQL/schema version, Redis PING, Kafka metadata и существующего private MinIO bucket
+без bucket policy; иначе 503. Четыре проверки параллельны, общий deadline — 1s.
+Неверная конфигурация/недоступность dependencies при startup не допускает обслуживания HTTP.
 API default address 127.0.0.1:8080; worker probes 127.0.0.1:8081. Error envelope и X-Request-ID
 действуют на все текущие routes; unsupported method → 405/METHOD_NOT_ALLOWED, unknown route →
 404/RESOURCE_NOT_FOUND. HEAD не возвращает body. Access logs не содержат raw URL/headers/body.
-Точная спецификация: [OpenAPI JSON](api/openapi/openapi.json). Это не бизнес-readiness и не
+Точная спецификация: [OpenAPI JSON](api/openapi/openapi.json). Это infrastructure readiness, не бизнес-readiness и не
 заглушки будущих chat endpoints: таких endpoints пока нет.
 
 Probes доступны без JWT/API key и Project context; тело запроса и Content-Type не требуются.

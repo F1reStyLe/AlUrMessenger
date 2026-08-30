@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"net"
+	"os"
 	"strings"
 	"testing"
 
@@ -13,10 +14,19 @@ import (
 // testEnvironment: Изолирует все поддерживаемые настройки от environment разработчика; t.Setenv восстанавливает их после теста.
 func testEnvironment(t *testing.T) {
 	t.Helper()
+	// Не наследуем secret-file overrides разработчика при подстановке unit credentials.
+	for _, name := range []string{"POSTGRES_URL", "REDIS_URL", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY"} {
+		t.Setenv(name+"_FILE", "")
+		_ = os.Unsetenv(name + "_FILE")
+	}
 	for key, value := range map[string]string{
 		"APP_ENV": "test", "APP_SHUTDOWN_TIMEOUT": "1s", "LOG_LEVEL": "info", "LOG_FORMAT": "json",
 		"HTTP_ADDR": "127.0.0.1:8080", "HTTP_READ_HEADER_TIMEOUT": "1s", "HTTP_READ_TIMEOUT": "2s",
 		"HTTP_WRITE_TIMEOUT": "2s", "HTTP_IDLE_TIMEOUT": "1s", "HTTP_MAX_HEADER_BYTES": "32768", "HTTP_MAX_BODY_BYTES": "1024",
+		"POSTGRES_URL": "postgres://test:test@127.0.0.1:5432/test?sslmode=disable", "POSTGRES_MAX_CONNS": "2",
+		"REDIS_URL": "redis://127.0.0.1:6379/0", "KAFKA_BROKERS": "127.0.0.1:9092", "KAFKA_SECURITY_PROTOCOL": "PLAINTEXT",
+		"MINIO_ENDPOINT": "http://127.0.0.1:9000", "MINIO_BUCKET": "chat-attachments", "MINIO_REGION": "us-east-1",
+		"MINIO_ACCESS_KEY": "unit-test", "MINIO_SECRET_KEY": "unit-test-secret", "INFRA_TIMEOUT": "1s",
 	} {
 		t.Setenv(key, value)
 	}

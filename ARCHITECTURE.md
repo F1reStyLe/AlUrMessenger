@@ -1,7 +1,8 @@
 # Архитектура Universal Chat Service
 
-Статус: архитектура MVP из Phase 0. Реализован bootstrap шага 1.1: cmd/api/worker,
-internal/app, platform/config/logging/httpserver; остальные компоненты пока проектируются.
+Статус: архитектура MVP из Phase 0. Реализован bootstrap 1.1 и infrastructure 1.2:
+cmd/api/worker/migrate/minio-init, config/logging/httpserver, PostgreSQL/Redis/Kafka/MinIO adapters.
+Domain modules и deployment Compose ещё не реализованы.
 Основание: [ТЗ](docs/REQUIREMENTS.md), [решения](DECISIONS.md), [план](IMPLEMENTATION_PLAN.md).
 Проект создаётся с нуля; совместимость с удалённым прототипом не требуется.
 
@@ -156,6 +157,10 @@ Workers координируются PostgreSQL locks/leases; outbox сериа�
 Echo Bot отправляет детерминированный client_message_id, предотвращая повторный ответ.
 
 ## Эксплуатация
+
+Текущий шаг 1.2 проверяет **все четыре** инфраструктурные зависимости для readiness обеих ролей.
+Это консервативная infrastructure probe до появления business routes; целевая политика
+degraded capabilities ниже вводится вместе с ними. Подробности: [Foundation 1.2](docs/INFRASTRUCTURE.md).
 
 - PostgreSQL durable commit, private MinIO, Redis TTL; ни Redis, ни Kafka не заменяют историю БД.
 - Liveness не проверяет сеть; readiness показывает готовность API сохранять/читать данные.

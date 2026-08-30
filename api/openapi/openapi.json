@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Universal Chat Service — process probes",
-    "version": "0.1.0",
-    "description": "Реализованный контракт Foundation 1.1 для API и worker. Probes доступны без авторизации и Project context; business API/jobs отсутствуют. Swagger UI запланирован на шаг 1.6. Тело запроса и Content-Type не требуются: probes не читают JSON. Middleware ограничивает заявленный Content-Length; потоковый лимит действует только при чтении body handler-ом. Ответы приложения содержат X-Request-ID, Cache-Control: no-store, X-Content-Type-Options: nosniff; HEAD без тела. Неизвестный путь: 404/RESOURCE_NOT_FOUND; неподдерживаемый метод probe: 405/METHOD_NOT_ALLOWED и Allow: GET, HEAD (см. x-routing-errors). Ошибки HTTP-парсера/лимита headers, разрыв соединения и канонизирующие redirects net/http до middleware могут не иметь JSON envelope или X-Request-ID."
+    "version": "0.2.0",
+    "description": "Реализованный контракт Foundation 1.2 для API и worker. Probes доступны без авторизации и Project context; business API/jobs отсутствуют. Swagger UI запланирован на шаг 1.6. Тело запроса и Content-Type не требуются: probes не читают JSON. Middleware ограничивает заявленный Content-Length; потоковый лимит действует только при чтении body handler-ом. Ответы приложения содержат X-Request-ID, Cache-Control: no-store, X-Content-Type-Options: nosniff; HEAD без тела. Неизвестный путь: 404/RESOURCE_NOT_FOUND; неподдерживаемый метод probe: 405/METHOD_NOT_ALLOWED и Allow: GET, HEAD (см. x-routing-errors). Ошибки HTTP-парсера/лимита headers, разрыв соединения и канонизирующие redirects net/http до middleware могут не иметь JSON envelope или X-Request-ID. Readiness проверяет PostgreSQL/schema version, Redis PING, Kafka metadata и существующий private MinIO bucket (без bucket policy) параллельно с общим deadline 1s. Успех означает только инфраструктурную готовность; JWT и business handlers ещё отсутствуют. При startup failure процесс не обслуживает HTTP."
   },
   "servers": [
     {
@@ -67,9 +67,12 @@
           "Probes"
         ],
         "operationId": "getReadiness",
-        "summary": "Готовность к обработке работы; bootstrap возвращает 503",
-        "description": "Авторизация не требуется. Оба процесса пока передают nil readiness: ответ 503. При drain также 503; после закрытия listener соединение не устанавливается.",
+        "summary": "Готовность PostgreSQL/schema, Redis, Kafka и private MinIO",
+        "description": "Без авторизации. Все четыре проверки должны пройти за общий deadline 1s. Успех — 200, недоступность/неверная schema/nonempty bucket policy/drain — 503. После закрытия listener соединение не устанавливается. Проба не создаёт данные и не заменяет проверки business permissions.",
         "responses": {
+          "200": {
+            "$ref": "#/components/responses/Ready"
+          },
           "413": {
             "$ref": "#/components/responses/PayloadTooLarge"
           },
@@ -86,9 +89,12 @@
           "Probes"
         ],
         "operationId": "headReadiness",
-        "summary": "Готовность к обработке работы; bootstrap возвращает 503",
-        "description": "Авторизация не требуется. Оба процесса пока передают nil readiness: ответ 503. При drain также 503; после закрытия listener соединение не устанавливается.",
+        "summary": "Готовность PostgreSQL/schema, Redis, Kafka и private MinIO",
+        "description": "Без авторизации. Все четыре проверки должны пройти за общий deadline 1s. Успех — 200, недоступность/неверная schema/nonempty bucket policy/drain — 503. После закрытия listener соединение не устанавливается. Проба не создаёт данные и не заменяет проверки business permissions.",
         "responses": {
+          "200": {
+            "$ref": "#/components/responses/HeadReady"
+          },
           "413": {
             "$ref": "#/components/responses/HeadPayloadTooLarge"
           },
@@ -161,7 +167,7 @@
         }
       },
       "Unavailable": {
-        "description": "DEPENDENCY_UNAVAILABLE: зависимости не настроены либо процесс завершает работу. Текущие cmd/api и cmd/worker передают nil callback, поэтому readiness 200 недоступна.",
+        "description": "DEPENDENCY_UNAVAILABLE: PostgreSQL/schema, Redis, Kafka или MinIO недоступны, bucket отсутствует/имеет policy, проверка превысила deadline, либо процесс завершает работу. Конкретные адреса и причины в публичном ответе не раскрываются.",
         "headers": {
           "X-Request-ID": {
             "$ref": "#/components/headers/RequestID"
@@ -187,7 +193,7 @@
             "example": {
               "error": {
                 "code": "DEPENDENCY_UNAVAILABLE",
-                "message": "Service dependencies are not configured",
+                "message": "Service dependencies are unavailable",
                 "request_id": "01900000-0000-4000-8000-000000000001"
               }
             }
@@ -416,6 +422,66 @@
             }
           }
         }
+      },
+      "Ready": {
+        "description": "Инфраструктура доступна и schema version соответствует бинарнику. Это не готовность полного Chat API.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Content-Type-Options": {
+            "schema": {
+              "type": "string",
+              "const": "nosniff"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "status"
+              ],
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "const": "ready"
+                }
+              },
+              "additionalProperties": false
+            },
+            "example": {
+              "status": "ready"
+            }
+          }
+        }
+      },
+      "HeadReady": {
+        "description": "Инфраструктура доступна: 200. Тело отсутствует; Content-Length соответствует JSON-ответу GET.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Content-Type-Options": {
+            "schema": {
+              "type": "string",
+              "const": "nosniff"
+            }
+          }
+        }
       }
     },
     "schemas": {
@@ -467,7 +533,7 @@
   "tags": [
     {
       "name": "Probes",
-      "description": "Проверки процесса без JWT/API key. Readiness bootstrap всегда недоступна."
+      "description": "Проверки процесса без JWT/API key. Readiness подтверждает четыре инфраструктурные зависимости."
     }
   ],
   "x-routing-errors": {
