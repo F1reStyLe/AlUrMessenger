@@ -33,5 +33,13 @@ profile.out
 /dist/
 /output/
 
+# Frontend dependencies and generated files (all packages)
+node_modules/
+dist/
+*.tsbuildinfo
+
 *.tar.gz
 Dockerfile-dev
+
+# Local implementation plan and work log
+/Agents.md
