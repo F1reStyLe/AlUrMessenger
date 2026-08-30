@@ -1,8 +1,26 @@
 # REST и Internal API
 
-Проект контрактов Phase 0. Реализуемые endpoints сопровождаются machine-readable OpenAPI
-в `api/openapi/`; локальный Swagger UI — `/docs/api`. Этот документ не означает готовность endpoint.
+Проект контрактов Phase 0. Сейчас реализованы только process probes шага 1.1 ниже.
+Реализуемые endpoints сопровождаются machine-readable OpenAPI
+в `api/openapi/`; локальный Swagger UI на `/docs/api` запланирован на шаг 1.6 и пока отсутствует.
+Этот документ не означает готовность endpoint.
 WS использует те же application services и правила: [WEBSOCKET_PROTOCOL.md](WEBSOCKET_PROTOCOL.md).
+
+## Уже реализовано: process probes, шаг 1.1
+
+GET/HEAD `/health/live` → 200; GET/HEAD `/health/ready` → 503, пока dependencies не настроены.
+API default address 127.0.0.1:8080; worker probes 127.0.0.1:8081. Error envelope и X-Request-ID
+действуют на все текущие routes; unsupported method → 405/METHOD_NOT_ALLOWED, unknown route →
+404/RESOURCE_NOT_FOUND. HEAD не возвращает body. Access logs не содержат raw URL/headers/body.
+Точная спецификация: [OpenAPI JSON](api/openapi/openapi.json). Это не бизнес-readiness и не
+заглушки будущих chat endpoints: таких endpoints пока нет.
+
+Probes доступны без JWT/API key и Project context; тело запроса и Content-Type не требуются.
+OpenAPI описывает входной X-Request-ID, response headers, примеры и ошибки 413/500,
+а также 404/405 в `x-routing-errors` (они не объявляют дополнительные поддерживаемые операции).
+Превышение заявленного Content-Length даёт 413 до routing; во время drain новые запросы,
+кроме liveness, получают 503. HEAD всегда без тела. Ошибки HTTP-парсера/лимита headers
+и redirects net/http до middleware могут не иметь JSON envelope или X-Request-ID.
 
 ## Общие правила
 

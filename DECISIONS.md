@@ -1,6 +1,7 @@
 # Архитектурные решения
 
-Статус: решения для новой реализации MVP, приняты на Phase 0; ещё не реализованы.
+Статус: решения для новой реализации MVP из Phase 0; bootstrap реализуется в Foundation 1.1,
+остальные решения вводятся вместе со своими фазами.
 Менять решение новой записью с причиной и последствиями, не переписывать историю молча.
 Точные dependency/image versions фиксируются при Foundation после проверки совместимости.
 
@@ -87,3 +88,32 @@ MinIO и только затем завершает cleanup. Short-lived unused 
 Конкретные Go/tool/image versions, Kafka/Redis/MinIO clients, default limits и retry intervals
 проверяются по официальной документации при внедрении. Они не наследуются из удалённого проекта.
 Существенное изменение принятого поведения/API оформляется отдельным решением до реализации.
+
+## D23 — Foundation 1.1: toolchain и границы bootstrap (2026-08-30)
+
+Go 1.27.0 закреплён в go.mod после проверки [официального списка релизов](https://go.dev/dl/?mode=json).
+Каркас использует только standard library; pgx/goose и infrastructure clients добавляются в 1.2.
+Один module `github.com/F1reStyLe/AlUrMessenger`, два небольших cmd и общая composition root internal/app.
+
+Config читает только environment, без implicit .env/Viper/global config state. APP_ENV обязателен;
+все существующие duration/size/address settings валидируются до listen, ошибки не содержат значений.
+Пока введены только APP/LOG/HTTP; обязательность секретов и endpoints появляется при реальном adapter.
+Development defaults loopback; production bootstrap также ограничен loopback до TLS deployment.
+
+Probe HTTP worker слушает отдельный port. Nil readiness означает 503, не успех; worker не имитирует
+Kafka/outbox jobs. Эти процессы доказывают lifecycle, а не готовность Chat Service.
+Swagger UI остаётся 1.6; текущие endpoints уже имеют OpenAPI JSON, чтобы документация не отставала.
+
+## D24 — Foundation 1.1: shutdown и безопасные diagnostics (2026-08-30)
+
+Первый Ctrl+C/SIGTERM начинает bounded drain. Request contexts намеренно не наследуют отмену
+signal context: иначе долгий запрос отменится до graceful завершения. После shutdown deadline
+они отменяются, connections закрываются, exit code ненулевой. Новые requests отклоняет admission gate.
+Реализация следует lifecycle [net/http.Server.Shutdown](https://pkg.go.dev/net/http#Server.Shutdown)
+и [signal.NotifyContext](https://pkg.go.dev/os/signal#NotifyContext); WS/hijacked connections и jobs
+потребуют собственной остановки в будущих фазах. Процесс не ждёт бесконечно handler, игнорирующий context.
+
+Access logs содержат только method, route pattern, status, bytes, duration и проверенный request ID.
+Raw URL/query/body/headers, panic values/stack и free-form net/http errors не логируются;
+transport diagnostics сводятся к стабильному error_code. Это сознательный компромисс до введения
+безопасных подробных infrastructure diagnostics: секреты не должны попадать в stdout.

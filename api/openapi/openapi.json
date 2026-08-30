@@ -1,0 +1,481 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Universal Chat Service — process probes",
+    "version": "0.1.0",
+    "description": "Реализованный контракт Foundation 1.1 для API и worker. Probes доступны без авторизации и Project context; business API/jobs отсутствуют. Swagger UI запланирован на шаг 1.6. Тело запроса и Content-Type не требуются: probes не читают JSON. Middleware ограничивает заявленный Content-Length; потоковый лимит действует только при чтении body handler-ом. Ответы приложения содержат X-Request-ID, Cache-Control: no-store, X-Content-Type-Options: nosniff; HEAD без тела. Неизвестный путь: 404/RESOURCE_NOT_FOUND; неподдерживаемый метод probe: 405/METHOD_NOT_ALLOWED и Allow: GET, HEAD (см. x-routing-errors). Ошибки HTTP-парсера/лимита headers, разрыв соединения и канонизирующие redirects net/http до middleware могут не иметь JSON envelope или X-Request-ID."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8080",
+      "description": "API, local bootstrap"
+    },
+    {
+      "url": "http://127.0.0.1:8081",
+      "description": "Worker process probes, local bootstrap"
+    }
+  ],
+  "paths": {
+    "/health/live": {
+      "get": {
+        "tags": [
+          "Probes"
+        ],
+        "operationId": "getLiveness",
+        "summary": "Работоспособность процесса независимо от зависимостей",
+        "description": "Авторизация не требуется. Ответ 200 означает, что процесс обслуживает HTTP. Liveness не проверяет инфраструктуру и остаётся доступной при drain, пока transport обслуживает соединение.",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Live"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "head": {
+        "tags": [
+          "Probes"
+        ],
+        "operationId": "headLiveness",
+        "summary": "Работоспособность процесса независимо от зависимостей",
+        "description": "Авторизация не требуется. Ответ 200 означает, что процесс обслуживает HTTP. Liveness не проверяет инфраструктуру и остаётся доступной при drain, пока transport обслуживает соединение.",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/HeadLive"
+          },
+          "413": {
+            "$ref": "#/components/responses/HeadPayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/HeadInternalError"
+          }
+        }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/RequestID"
+        }
+      ]
+    },
+    "/health/ready": {
+      "get": {
+        "tags": [
+          "Probes"
+        ],
+        "operationId": "getReadiness",
+        "summary": "Готовность к обработке работы; bootstrap возвращает 503",
+        "description": "Авторизация не требуется. Оба процесса пока передают nil readiness: ответ 503. При drain также 503; после закрытия listener соединение не устанавливается.",
+        "responses": {
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      },
+      "head": {
+        "tags": [
+          "Probes"
+        ],
+        "operationId": "headReadiness",
+        "summary": "Готовность к обработке работы; bootstrap возвращает 503",
+        "description": "Авторизация не требуется. Оба процесса пока передают nil readiness: ответ 503. При drain также 503; после закрытия listener соединение не устанавливается.",
+        "responses": {
+          "413": {
+            "$ref": "#/components/responses/HeadPayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/HeadInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/HeadUnavailable"
+          }
+        }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/RequestID"
+        }
+      ]
+    }
+  },
+  "components": {
+    "headers": {
+      "RequestID": {
+        "description": "Принятый/нормализованный либо сгенерированный UUID; совпадает с error.request_id.",
+        "schema": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "example": "01900000-0000-4000-8000-000000000001"
+      }
+    },
+    "responses": {
+      "Live": {
+        "description": "Процесс отвечает независимо от готовности зависимостей.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Content-Type-Options": {
+            "schema": {
+              "type": "string",
+              "const": "nosniff"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "status"
+              ],
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "const": "ok"
+                }
+              },
+              "additionalProperties": false
+            },
+            "example": {
+              "status": "ok"
+            }
+          }
+        }
+      },
+      "Unavailable": {
+        "description": "DEPENDENCY_UNAVAILABLE: зависимости не настроены либо процесс завершает работу. Текущие cmd/api и cmd/worker передают nil callback, поэтому readiness 200 недоступна.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Content-Type-Options": {
+            "schema": {
+              "type": "string",
+              "const": "nosniff"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "DEPENDENCY_UNAVAILABLE",
+                "message": "Service dependencies are not configured",
+                "request_id": "01900000-0000-4000-8000-000000000001"
+              }
+            }
+          }
+        }
+      },
+      "PayloadTooLarge": {
+        "description": "PAYLOAD_TOO_LARGE: Content-Length превышает HTTP_MAX_BODY_BYTES (default 1048576). Проверяется до routing/drain.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Content-Type-Options": {
+            "schema": {
+              "type": "string",
+              "const": "nosniff"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "PAYLOAD_TOO_LARGE",
+                "message": "Request body exceeds the configured limit",
+                "request_id": "01900000-0000-4000-8000-000000000001"
+              }
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "INTERNAL_ERROR: panic до отправки headers либо ошибка сериализации. После начала ответа panic прерывает поток без дополнительного JSON.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Content-Type-Options": {
+            "schema": {
+              "type": "string",
+              "const": "nosniff"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "Internal server error",
+                "request_id": "01900000-0000-4000-8000-000000000001"
+              }
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "RESOURCE_NOT_FOUND: неизвестный путь. Во время drain admission может раньше вернуть 503, превышение Content-Length — 413. HEAD без тела.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Content-Type-Options": {
+            "schema": {
+              "type": "string",
+              "const": "nosniff"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "RESOURCE_NOT_FOUND",
+                "message": "Resource not found",
+                "request_id": "01900000-0000-4000-8000-000000000001"
+              }
+            }
+          }
+        }
+      },
+      "MethodNotAllowed": {
+        "description": "METHOD_NOT_ALLOWED: метод probe кроме GET/HEAD. Во время drain /health/ready раньше возвращает 503; превышение Content-Length — 413.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Content-Type-Options": {
+            "schema": {
+              "type": "string",
+              "const": "nosniff"
+            }
+          },
+          "Allow": {
+            "schema": {
+              "type": "string",
+              "const": "GET, HEAD"
+            },
+            "example": "GET, HEAD"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "METHOD_NOT_ALLOWED",
+                "message": "Method not allowed",
+                "request_id": "01900000-0000-4000-8000-000000000001"
+              }
+            }
+          }
+        }
+      },
+      "HeadLive": {
+        "description": "Процесс отвечает: 200. Тело отсутствует; Content-Length соответствует JSON-ответу GET.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Content-Type-Options": {
+            "schema": {
+              "type": "string",
+              "const": "nosniff"
+            }
+          }
+        }
+      },
+      "HeadUnavailable": {
+        "description": "DEPENDENCY_UNAVAILABLE: процесс не готов, 503. Тело отсутствует; Content-Length соответствует JSON-ответу GET.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Content-Type-Options": {
+            "schema": {
+              "type": "string",
+              "const": "nosniff"
+            }
+          }
+        }
+      },
+      "HeadPayloadTooLarge": {
+        "description": "PAYLOAD_TOO_LARGE: превышен Content-Length, 413. Тело отсутствует; Content-Length соответствует JSON-ответу GET.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Content-Type-Options": {
+            "schema": {
+              "type": "string",
+              "const": "nosniff"
+            }
+          }
+        }
+      },
+      "HeadInternalError": {
+        "description": "INTERNAL_ERROR: ошибка до отправки headers, 500. Тело отсутствует; Content-Length соответствует JSON-ответу GET.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Content-Type-Options": {
+            "schema": {
+              "type": "string",
+              "const": "nosniff"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message",
+              "request_id"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "request_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          }
+        }
+      }
+    },
+    "parameters": {
+      "RequestID": {
+        "name": "X-Request-ID",
+        "in": "header",
+        "required": false,
+        "description": "Correlation ID, не ключ авторизации или идемпотентности. Принимается UUID canonical layout, версии 1–8, RFC variant 8/9/a/b; uppercase нормализуется в lowercase. При другом значении, nil/max UUID или отсутствии заголовка генерируется UUID v4 без ошибки валидации.",
+        "schema": {
+          "type": "string"
+        },
+        "example": "01900000-0000-4000-8000-000000000001"
+      }
+    }
+  },
+  "security": [],
+  "tags": [
+    {
+      "name": "Probes",
+      "description": "Проверки процесса без JWT/API key. Readiness bootstrap всегда недоступна."
+    }
+  ],
+  "x-routing-errors": {
+    "404": {
+      "$ref": "#/components/responses/NotFound"
+    },
+    "405": {
+      "$ref": "#/components/responses/MethodNotAllowed"
+    }
+  }
+}

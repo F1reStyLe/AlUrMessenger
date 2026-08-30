@@ -1,0 +1,68 @@
+package app
+
+import (
+	"bytes"
+	"context"
+	"net"
+	"strings"
+	"testing"
+
+	"github.com/F1reStyLe/AlUrMessenger/internal/platform/config"
+)
+
+// testEnvironment: Изолирует все поддерживаемые настройки от environment разработчика; t.Setenv восстанавливает их после теста.
+func testEnvironment(t *testing.T) {
+	t.Helper()
+	for key, value := range map[string]string{
+		"APP_ENV": "test", "APP_SHUTDOWN_TIMEOUT": "1s", "LOG_LEVEL": "info", "LOG_FORMAT": "json",
+		"HTTP_ADDR": "127.0.0.1:8080", "HTTP_READ_HEADER_TIMEOUT": "1s", "HTTP_READ_TIMEOUT": "2s",
+		"HTTP_WRITE_TIMEOUT": "2s", "HTTP_IDLE_TIMEOUT": "1s", "HTTP_MAX_HEADER_BYTES": "32768", "HTTP_MAX_BODY_BYTES": "1024",
+	} {
+		t.Setenv(key, value)
+	}
+}
+
+// TestConfigurationFailureIsNonzeroAndRedacted: Проверяет публичный exit status и полезную диагностику без исходного секретного значения.
+func TestConfigurationFailureIsNonzeroAndRedacted(t *testing.T) {
+	testEnvironment(t)
+	t.Setenv("APP_ENV", "secret-environment")
+	var output bytes.Buffer
+	if code := run(t.Context(), config.API, &output); code != 1 {
+		t.Fatalf("exit=%d, want 1", code)
+	}
+	if strings.Contains(output.String(), "secret-environment") || !strings.Contains(output.String(), "APP_ENV") {
+		t.Fatalf("unsafe/unhelpful startup diagnostic: %s", output.String())
+	}
+}
+
+// TestBindFailureIsNonzero: Занимает реальный ephemeral port, чтобы проверить ошибку bind без привязки к портам разработчика.
+func TestBindFailureIsNonzero(t *testing.T) {
+	testEnvironment(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	t.Setenv("HTTP_ADDR", listener.Addr().String())
+	var output bytes.Buffer
+	if code := run(t.Context(), config.Worker, &output); code != 1 {
+		t.Fatalf("exit=%d, want 1", code)
+	}
+	if !strings.Contains(output.String(), "LISTEN_FAILED") {
+		t.Fatal("missing structured bind failure")
+	}
+}
+
+// TestCancelledStartupDoesNotBind: Отменяет context до запуска: процесс не должен сообщать о старте или возвращать ошибку.
+func TestCancelledStartupDoesNotBind(t *testing.T) {
+	testEnvironment(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	var output bytes.Buffer
+	if code := run(ctx, config.API, &output); code != 0 {
+		t.Fatalf("exit=%d, want 0", code)
+	}
+	if output.Len() != 0 {
+		t.Fatal("cancelled startup should not announce listening")
+	}
+}

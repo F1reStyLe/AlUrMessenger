@@ -1,6 +1,7 @@
 # Архитектура Universal Chat Service
 
-Статус: проектирование Phase 0; описанные компоненты ещё не реализованы.
+Статус: архитектура MVP из Phase 0. Реализован bootstrap шага 1.1: cmd/api/worker,
+internal/app, platform/config/logging/httpserver; остальные компоненты пока проектируются.
 Основание: [ТЗ](docs/REQUIREMENTS.md), [решения](DECISIONS.md), [план](IMPLEMENTATION_PLAN.md).
 Проект создаётся с нуля; совместимость с удалённым прототипом не требуется.
 
