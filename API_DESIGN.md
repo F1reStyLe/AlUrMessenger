@@ -3,6 +3,8 @@
 Проект контрактов Phase 0. Реализованы process/infrastructure probes и Identity API 1.4:
 GET/PATCH `/api/v1/me`, GET `/api/v1/users`, GET `/api/v1/users/{user_id}`.
 Точный текущий контракт/ошибки — OpenAPI; [auth/provisioning](docs/IDENTITY.md).
+Шаг 1.5 добавил GET/PATCH `/admin/v1/project`, GET/PATCH `/admin/v1/feature-flags`
+и GET `/admin/v1/audit-logs` (пока только cursor/limit); [policies](docs/POLICIES.md).
 Реализуемые endpoints сопровождаются machine-readable OpenAPI
 в `api/openapi/`; локальный Swagger UI на `/docs/api` запланирован на шаг 1.6 и пока отсутствует.
 Этот документ не означает готовность endpoint.

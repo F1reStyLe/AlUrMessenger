@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Universal Chat Service",
-    "version": "0.4.0",
-    "description": "Foundation 1.4: infrastructure probes and Project-scoped identity API. JWT RS256: trusted Project issuer/audience, exp, sub, project_id, roles user/admin, token_use=access; 30s clock skew. First valid request atomically provisions a profile. Worker serves probes only. All responses use X-Request-ID and no-store. Swagger UI is scheduled for 1.6. Parser errors before application middleware may not use JSON envelopes."
+    "version": "0.5.0",
+    "description": "Foundation 1.4: infrastructure probes and Project-scoped identity API. JWT RS256: trusted Project issuer/audience, exp, sub, project_id, roles user/admin, token_use=access; 30s clock skew. First valid request atomically provisions a profile. Worker serves probes only. All responses use X-Request-ID and no-store. Swagger UI is scheduled for 1.6. Parser errors before application middleware may not use JSON envelopes. Foundation 1.5: admin Project settings/flags, append-only audit, exact CORS and shared Redis IP/user fixed-window limits. Default 120 requests/IP/minute and 60 requests/Project-user/minute, configurable. Rate-limiter failures return 503; trusted proxy headers are not configured."
   },
   "servers": [
     {
@@ -230,6 +230,12 @@
                 }
               }
             }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "403": {
+            "$ref": "#/components/responses/PolicyForbidden"
           }
         }
       },
@@ -373,21 +379,7 @@
             }
           },
           "403": {
-            "description": "Banned users may read but cannot patch profiles",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "example": {
-                  "error": {
-                    "code": "USER_BANNED",
-                    "message": "Banned users may read but cannot patch profiles",
-                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/PolicyForbidden"
           },
           "415": {
             "description": "Content-Type must be application/json",
@@ -405,6 +397,9 @@
                 }
               }
             }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         },
         "requestBody": {
@@ -422,7 +417,146 @@
         {
           "$ref": "#/components/parameters/RequestID"
         }
-      ]
+      ],
+      "options": {
+        "operationId": "preflight_api_v1_me",
+        "tags": [
+          "CORS"
+        ],
+        "summary": "CORS preflight without JWT; exact allowed Origin required",
+        "security": [],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Must exactly match CORS_ALLOWED_ORIGINS."
+          },
+          {
+            "in": "header",
+            "name": "Access-Control-Request-Method",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "GET",
+                "PATCH"
+              ]
+            }
+          },
+          {
+            "in": "header",
+            "name": "Access-Control-Request-Headers",
+            "schema": {
+              "type": "string"
+            },
+            "example": "authorization,content-type"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Preflight accepted, no body. No credential cookies supported.",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Methods": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Headers": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Max-Age": {
+                "schema": {
+                  "type": "integer"
+                },
+                "example": 300
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive/unknown Project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/PolicyForbidden"
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "/api/v1/users": {
       "get": {
@@ -563,6 +697,12 @@
                 }
               }
             }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "403": {
+            "$ref": "#/components/responses/PolicyForbidden"
           }
         },
         "parameters": [
@@ -590,7 +730,145 @@
         {
           "$ref": "#/components/parameters/RequestID"
         }
-      ]
+      ],
+      "options": {
+        "operationId": "preflight_api_v1_users",
+        "tags": [
+          "CORS"
+        ],
+        "summary": "CORS preflight without JWT; exact allowed Origin required",
+        "security": [],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Must exactly match CORS_ALLOWED_ORIGINS."
+          },
+          {
+            "in": "header",
+            "name": "Access-Control-Request-Method",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "GET"
+              ]
+            }
+          },
+          {
+            "in": "header",
+            "name": "Access-Control-Request-Headers",
+            "schema": {
+              "type": "string"
+            },
+            "example": "authorization,content-type"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Preflight accepted, no body. No credential cookies supported.",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Methods": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Headers": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Max-Age": {
+                "schema": {
+                  "type": "integer"
+                },
+                "example": 300
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive/unknown Project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/PolicyForbidden"
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "/api/v1/users/{user_id}": {
       "get": {
@@ -748,6 +1026,12 @@
                 }
               }
             }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "403": {
+            "$ref": "#/components/responses/PolicyForbidden"
           }
         },
         "parameters": [
@@ -766,7 +1050,1364 @@
         {
           "$ref": "#/components/parameters/RequestID"
         }
-      ]
+      ],
+      "options": {
+        "operationId": "preflight_api_v1_users_user_id",
+        "tags": [
+          "CORS"
+        ],
+        "summary": "CORS preflight without JWT; exact allowed Origin required",
+        "security": [],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Must exactly match CORS_ALLOWED_ORIGINS."
+          },
+          {
+            "in": "header",
+            "name": "Access-Control-Request-Method",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "GET"
+              ]
+            }
+          },
+          {
+            "in": "header",
+            "name": "Access-Control-Request-Headers",
+            "schema": {
+              "type": "string"
+            },
+            "example": "authorization,content-type"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Preflight accepted, no body. No credential cookies supported.",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Methods": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Headers": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Max-Age": {
+                "schema": {
+                  "type": "integer"
+                },
+                "example": 300
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive/unknown Project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/PolicyForbidden"
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/v1/project": {
+      "get": {
+        "tags": [
+          "Administration"
+        ],
+        "operationId": "getProjectSettings",
+        "summary": "Read current Project settings and flags; Project admin only",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive/unknown Project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds configured bound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "PAYLOAD_TOO_LARGE",
+                    "message": "Body exceeds configured bound",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected application error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Unexpected application error",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "403": {
+            "$ref": "#/components/responses/PolicyForbidden"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Administration"
+        ],
+        "operationId": "patchProjectSettings",
+        "summary": "Versioned Project settings mutation with transactional audit; Project admin only",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive/unknown Project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds configured bound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "PAYLOAD_TOO_LARGE",
+                    "message": "Body exceeds configured bound",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected application error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Unexpected application error",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid profile, UUID, or pagination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "Invalid profile, UUID, or pagination",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/PolicyForbidden"
+          },
+          "415": {
+            "description": "Content-Type must be application/json",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNSUPPORTED_MEDIA",
+                    "message": "Content-Type must be application/json",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/VersionConflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsPatch"
+              }
+            }
+          }
+        }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/RequestID"
+        }
+      ],
+      "options": {
+        "operationId": "preflight_admin_v1_project",
+        "tags": [
+          "CORS"
+        ],
+        "summary": "CORS preflight without JWT; exact allowed Origin required",
+        "security": [],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Must exactly match CORS_ALLOWED_ORIGINS."
+          },
+          {
+            "in": "header",
+            "name": "Access-Control-Request-Method",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "GET",
+                "PATCH"
+              ]
+            }
+          },
+          {
+            "in": "header",
+            "name": "Access-Control-Request-Headers",
+            "schema": {
+              "type": "string"
+            },
+            "example": "authorization,content-type"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Preflight accepted, no body. No credential cookies supported.",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Methods": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Headers": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Max-Age": {
+                "schema": {
+                  "type": "integer"
+                },
+                "example": 300
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive/unknown Project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/PolicyForbidden"
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/v1/feature-flags": {
+      "get": {
+        "tags": [
+          "Administration"
+        ],
+        "operationId": "getFeatureFlags",
+        "summary": "Read current Project settings and flags; Project admin only",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive/unknown Project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds configured bound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "PAYLOAD_TOO_LARGE",
+                    "message": "Body exceeds configured bound",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected application error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Unexpected application error",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "403": {
+            "$ref": "#/components/responses/PolicyForbidden"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Administration"
+        ],
+        "operationId": "patchFeatureFlags",
+        "summary": "Versioned Project settings mutation with transactional audit; Project admin only",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive/unknown Project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds configured bound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "PAYLOAD_TOO_LARGE",
+                    "message": "Body exceeds configured bound",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected application error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Unexpected application error",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid profile, UUID, or pagination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "Invalid profile, UUID, or pagination",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/PolicyForbidden"
+          },
+          "415": {
+            "description": "Content-Type must be application/json",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNSUPPORTED_MEDIA",
+                    "message": "Content-Type must be application/json",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/VersionConflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlagsPatch"
+              }
+            }
+          }
+        }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/RequestID"
+        }
+      ],
+      "options": {
+        "operationId": "preflight_admin_v1_feature-flags",
+        "tags": [
+          "CORS"
+        ],
+        "summary": "CORS preflight without JWT; exact allowed Origin required",
+        "security": [],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Must exactly match CORS_ALLOWED_ORIGINS."
+          },
+          {
+            "in": "header",
+            "name": "Access-Control-Request-Method",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "GET",
+                "PATCH"
+              ]
+            }
+          },
+          {
+            "in": "header",
+            "name": "Access-Control-Request-Headers",
+            "schema": {
+              "type": "string"
+            },
+            "example": "authorization,content-type"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Preflight accepted, no body. No credential cookies supported.",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Methods": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Headers": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Max-Age": {
+                "schema": {
+                  "type": "integer"
+                },
+                "example": 300
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive/unknown Project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/PolicyForbidden"
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/v1/audit-logs": {
+      "get": {
+        "tags": [
+          "Administration"
+        ],
+        "operationId": "listAudit",
+        "summary": "Append-only audit in current Project; Project admin only",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive/unknown Project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds configured bound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "PAYLOAD_TOO_LARGE",
+                    "message": "Body exceeds configured bound",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected application error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Unexpected application error",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid profile, UUID, or pagination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "Invalid profile, UUID, or pagination",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "403": {
+            "$ref": "#/components/responses/PolicyForbidden"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Opaque next_cursor from prior page; UUID keyset, no total count. Unknown/duplicate query parameters rejected."
+          }
+        ],
+        "description": "Forward UUID v7 keyset order, not a commit-ordered changefeed. Only cursor/limit supported in Foundation; additional actor/action/time filters are planned for the administration phase. No update/delete API."
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/RequestID"
+        }
+      ],
+      "options": {
+        "operationId": "preflight_admin_v1_audit-logs",
+        "tags": [
+          "CORS"
+        ],
+        "summary": "CORS preflight without JWT; exact allowed Origin required",
+        "security": [],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Must exactly match CORS_ALLOWED_ORIGINS."
+          },
+          {
+            "in": "header",
+            "name": "Access-Control-Request-Method",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "GET"
+              ]
+            }
+          },
+          {
+            "in": "header",
+            "name": "Access-Control-Request-Headers",
+            "schema": {
+              "type": "string"
+            },
+            "example": "authorization,content-type"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Preflight accepted, no body. No credential cookies supported.",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Methods": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Headers": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Max-Age": {
+                "schema": {
+                  "type": "integer"
+                },
+                "example": 300
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive/unknown Project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/PolicyForbidden"
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1138,6 +2779,66 @@
             }
           }
         }
+      },
+      "RateLimited": {
+        "description": "Shared IP or Project-user request quota exceeded",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "RATE_LIMITED",
+                "message": "Shared IP or Project-user request quota exceeded",
+                "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+              }
+            }
+          }
+        },
+        "headers": {
+          "Retry-After": {
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "Seconds until the current fixed window expires"
+          }
+        }
+      },
+      "PolicyForbidden": {
+        "description": "Project admin required; USER_BANNED for banned writers; ORIGIN_FORBIDDEN for rejected Origin/preflight",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "FORBIDDEN",
+                "message": "Project admin required; USER_BANNED for banned writers; ORIGIN_FORBIDDEN for rejected Origin/preflight",
+                "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+              }
+            }
+          }
+        }
+      },
+      "VersionConflict": {
+        "description": "Reload current settings_version before retrying",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "VERSION_CONFLICT",
+                "message": "Reload current settings_version before retrying",
+                "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+              }
+            }
+          }
+        }
       }
     },
     "schemas": {
@@ -1282,6 +2983,331 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/User"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Opaque cursor; null at end. Pass unchanged as cursor."
+          }
+        }
+      },
+      "Flags": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "allow_images",
+          "allow_reactions",
+          "allow_edit",
+          "allow_delete",
+          "allow_forward",
+          "allow_reply",
+          "allow_pin",
+          "typing_enabled",
+          "presence_enabled",
+          "read_receipts",
+          "allow_bots",
+          "allow_webhooks"
+        ],
+        "properties": {
+          "allow_images": {
+            "type": "boolean",
+            "default": true
+          },
+          "allow_reactions": {
+            "type": "boolean",
+            "default": true
+          },
+          "allow_edit": {
+            "type": "boolean",
+            "default": true
+          },
+          "allow_delete": {
+            "type": "boolean",
+            "default": true
+          },
+          "allow_forward": {
+            "type": "boolean",
+            "default": true
+          },
+          "allow_reply": {
+            "type": "boolean",
+            "default": true
+          },
+          "allow_pin": {
+            "type": "boolean",
+            "default": true
+          },
+          "typing_enabled": {
+            "type": "boolean",
+            "default": true
+          },
+          "presence_enabled": {
+            "type": "boolean",
+            "default": true
+          },
+          "read_receipts": {
+            "type": "boolean",
+            "default": true
+          },
+          "allow_bots": {
+            "type": "boolean",
+            "default": false
+          },
+          "allow_webhooks": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "Settings": {
+        "type": "object",
+        "required": [
+          "project_id",
+          "name",
+          "flags",
+          "max_upload_size",
+          "message_retention_days",
+          "settings_version"
+        ],
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "flags": {
+            "$ref": "#/components/schemas/Flags"
+          },
+          "max_upload_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 52428800,
+            "default": 10485760
+          },
+          "message_retention_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3650,
+            "default": 365
+          },
+          "settings_version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "example": "1"
+          }
+        }
+      },
+      "SettingsPatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version"
+        ],
+        "minProperties": 2,
+        "properties": {
+          "expected_version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "example": "1"
+          },
+          "flags": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "properties": {
+              "allow_images": {
+                "type": "boolean"
+              },
+              "allow_reactions": {
+                "type": "boolean"
+              },
+              "allow_edit": {
+                "type": "boolean"
+              },
+              "allow_delete": {
+                "type": "boolean"
+              },
+              "allow_forward": {
+                "type": "boolean"
+              },
+              "allow_reply": {
+                "type": "boolean"
+              },
+              "allow_pin": {
+                "type": "boolean"
+              },
+              "typing_enabled": {
+                "type": "boolean"
+              },
+              "presence_enabled": {
+                "type": "boolean"
+              },
+              "read_receipts": {
+                "type": "boolean"
+              },
+              "allow_bots": {
+                "type": "boolean"
+              },
+              "allow_webhooks": {
+                "type": "boolean"
+              }
+            }
+          },
+          "max_upload_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 52428800,
+            "default": 10485760
+          },
+          "message_retention_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3650,
+            "default": 365
+          }
+        },
+        "example": {
+          "expected_version": "1",
+          "flags": {
+            "allow_images": false
+          }
+        }
+      },
+      "FlagsPatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "flags"
+        ],
+        "minProperties": 2,
+        "properties": {
+          "expected_version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "example": "1"
+          },
+          "flags": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "properties": {
+              "allow_images": {
+                "type": "boolean"
+              },
+              "allow_reactions": {
+                "type": "boolean"
+              },
+              "allow_edit": {
+                "type": "boolean"
+              },
+              "allow_delete": {
+                "type": "boolean"
+              },
+              "allow_forward": {
+                "type": "boolean"
+              },
+              "allow_reply": {
+                "type": "boolean"
+              },
+              "allow_pin": {
+                "type": "boolean"
+              },
+              "typing_enabled": {
+                "type": "boolean"
+              },
+              "presence_enabled": {
+                "type": "boolean"
+              },
+              "read_receipts": {
+                "type": "boolean"
+              },
+              "allow_bots": {
+                "type": "boolean"
+              },
+              "allow_webhooks": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "example": {
+          "expected_version": "1",
+          "flags": {
+            "allow_images": false
+          }
+        }
+      },
+      "Audit": {
+        "type": "object",
+        "required": [
+          "id",
+          "actor_id",
+          "action",
+          "resource_type",
+          "resource_id",
+          "metadata",
+          "request_id",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "actor_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "action": {
+            "type": "string",
+            "example": "project.settings.updated"
+          },
+          "resource_type": {
+            "type": "string",
+            "example": "project"
+          },
+          "resource_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "metadata": {
+            "type": "object",
+            "properties": {
+              "changed_fields": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AuditPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Audit"
             }
           },
           "next_cursor": {

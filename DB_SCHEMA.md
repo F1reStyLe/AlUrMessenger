@@ -1,7 +1,8 @@
 # Модель данных
 
-Domain schema ниже — проект Phase 0. Реализованы migrations 1–2: schema `chat`,
+Domain schema ниже — проект Phase 0. Реализованы migrations 1–3: schema `chat`,
 runtime privileges/goose tracking и `projects`/`users` с tenant uniqueness/FK.
+Migration 3 добавляет project_settings и append-only audit_logs; runtime не меняет audit rows.
 Остальные таблицы ниже остаются планом последующих шагов.
 PostgreSQL — source of truth. [Текущая миграция](migrations/00001_foundation.sql).
 Все UUID выдаются приложением; timestamp — timestamptz UTC. BIGINT sequences в JSON передаются

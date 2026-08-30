@@ -3,6 +3,8 @@
 Статус: обязательные требования к новой реализации, Phase 0. Документ не является заявлением
 о проведённом security review готового приложения. Контракты: [API](API_DESIGN.md),
 [WS](WEBSOCKET_PROTOCOL.md), [events](EVENTS.md), [schema](DB_SCHEMA.md).
+Реализованный Foundation subset: [JWT/identity](docs/IDENTITY.md),
+[Project permissions, audit, CORS и Redis quotas](docs/POLICIES.md).
 
 ## Trust boundaries
 

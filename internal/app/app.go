@@ -10,14 +10,19 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/F1reStyLe/AlUrMessenger/internal/platform/admission"
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/config"
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/httpserver"
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/infrastructure"
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/logging"
+	"github.com/F1reStyLe/AlUrMessenger/internal/policy"
+	policyrepo "github.com/F1reStyLe/AlUrMessenger/internal/policy/repository"
+	policyhttp "github.com/F1reStyLe/AlUrMessenger/internal/policy/transport"
 )
 
 // Main returns an exit status after all lifecycle cleanup has completed.
@@ -49,6 +54,11 @@ func run(ctx context.Context, service config.Service, output io.Writer) (exitCod
 	infraConfig, err := config.LoadInfrastructure(cfg.Environment)
 	if err != nil {
 		logger.Error("infrastructure configuration rejected", "error", err.Error())
+		return 1
+	}
+	securityConfig, err := admission.Load(cfg.Environment)
+	if err != nil {
+		logger.Error("admission configuration rejected")
 		return 1
 	}
 	listener, err := net.Listen("tcp", cfg.HTTP.Address)
@@ -88,7 +98,14 @@ func run(ctx context.Context, service config.Service, output io.Writer) (exitCod
 			logger.Error("authentication configuration rejected")
 			return 1
 		}
-		identityhttp.Register(server, &identity.Service{Verifier: verifier, Store: store}, nil)
+		identities := &identity.Service{Verifier: verifier, Store: store}
+		limiter := &admission.Limiter{Redis: clients.Redis, Config: securityConfig}
+		// Order: IP/CORS → JWT/provisioning → Project-user limit → permissions/use case.
+		protect := func(next http.Handler) http.Handler {
+			return limiter.Before(identityhttp.Authenticate(identities, limiter.After(next)))
+		}
+		identityhttp.Register(server, identities, protect)
+		policyhttp.Register(server, &policy.Service{Store: &policyrepo.Store{DB: clients.Postgres}}, protect)
 	}
 	logger.Info("service starting")
 	if err := server.Run(ctx, listener); err != nil {

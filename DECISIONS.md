@@ -185,3 +185,16 @@ Project CLI использует migration credentials; публичного pro
 проверка под Project shared lock/user lock вместе с изменением профиля. Runtime auth bindings
 недоступны для UPDATE; UPDATE(updated_at) разрешён только как prerequisite row locks.
 Seed/dev-token требуют development, seed не меняет существующие профили, roles не хранятся в users.
+## D30 — Foundation policies, atomic audit and shared admission limits
+
+Принято в 1.5. Project settings — typed partial update с expected_version (JSON string),
+exclusive Project lock, повторной ban-проверкой и audit insert в той же transaction.
+Profile writes берут shared Project lock; будущие message use cases обязаны соблюдать этот
+порядок и проверять flags на snapshot своей transaction. Numeric caps: upload <=50 MiB,
+retention 1..3650 дней; defaults 10 MiB/365. Flags не создают будущую функциональность.
+Audit append-only для runtime SQL; UUID v7 keyset — ID order, не commit-ordered changefeed.
+Расширенные audit filters и ban API остаются в фазе admin/moderation.
+Rate limits — atomic Redis fixed 60s window, fail closed 503; IP до JWT, Project-user после.
+Default 120/IP и 60/user, настройки bounded. Proxy headers пока не trusted: за proxy
+IP quota общая, production должен отдельно определить trusted-proxy policy.
+CORS exact origins, HTTPS в production, no cookies; OPTIONS без JWT, но с IP quota.

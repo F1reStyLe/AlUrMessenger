@@ -97,9 +97,11 @@ func selfDTO(a identity.Actor, u identity.User) Self {
 // wrap позволяет composition root добавить общие admission policies до JWT.
 func Register(server *httpserver.Server, service *identity.Service, wrap func(http.Handler) http.Handler) {
 	register := func(path, methods string, h http.HandlerFunc) {
-		handler := Authenticate(service, Methods(methods, h))
+		var handler http.Handler = Methods(methods, h)
 		if wrap != nil {
 			handler = wrap(handler)
+		} else {
+			handler = Authenticate(service, handler)
 		}
 		server.Handle(path, handler)
 	}

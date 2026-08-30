@@ -4,10 +4,11 @@
 MinIO, REST, WebSocket и внутренний gRPC. Frontend — простые Admin и Demo на Vue 3/TypeScript/Vite.
 
 Проект начат заново по решению пользователя. Предыдущая реализация удалена; Git history сохранена.
-Phase 0 завершена; реализованы **шаги 1.1–1.4 Foundation**: API/worker, конфигурация,
+Phase 0 завершена; реализованы **шаги 1.1–1.5 Foundation**: API/worker, конфигурация,
 логи, HTTP lifecycle, PostgreSQL/Redis/Kafka/MinIO adapters и отдельные команды миграций/init.
 Добавлены development Compose, Project/User, внешний JWT verifier, профили и dev seed/token.
 Чата, jobs и frontend пока нет. [Identity API и запуск seed](docs/IDENTITY.md).
+Добавлены [Project policies, CORS, Redis limits и audit](docs/POLICIES.md).
 Readiness подтверждает готовность инфраструктуры, а не всего Chat API.
 
 ## Локальный запуск
@@ -158,7 +159,7 @@ Redis TTL, Kafka produce/consume, приватность S3, сбой и вос�
 
 ## Следующий этап
 
-Следующий шаг **1.5**: policies/limits; затем Swagger UI/приёмочные проверки (1.6).
+Следующий шаг **1.6**: Swagger UI и приёмочные проверки Foundation.
 Foundation целиком пока не завершена.
 
 Целевой локальный процесс — clone → development configuration/secret initialization →

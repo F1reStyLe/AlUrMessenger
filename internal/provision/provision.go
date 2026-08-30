@@ -50,7 +50,9 @@ func Create(ctx context.Context, db *pgx.Conn, p Project) error {
 	if !matches {
 		return errors.New("PROJECT_ALREADY_EXISTS_WITH_DIFFERENT_SETTINGS")
 	}
-	return nil
+	// Explicit default settings are created for every operator-provisioned Project.
+	_, err = db.Exec(ctx, "INSERT INTO chat.project_settings(project_id) VALUES($1) ON CONFLICT(project_id) DO NOTHING", p.ID)
+	return err
 }
 
 // Seed не назначает роли в БД: admin role приходит только из подписанного JWT.
@@ -67,7 +69,10 @@ func Seed(ctx context.Context, environment string, db *pgx.Conn) error {
 			return err
 		}
 	}
-	return nil
+	// Dev integration flags are enabled only before the first administrative edit.
+	// Repeat seed must never reset the admin's versioned settings.
+	_, err := db.Exec(ctx, `UPDATE chat.project_settings SET flags=flags || '{"allow_bots":true,"allow_webhooks":true}'::jsonb WHERE project_id=$1 AND settings_version=1 AND updated_by IS NULL`, DevProject)
+	return err
 }
 
 // Token выпускается только в development; срок 15 минут, явный access purpose и RS256.
