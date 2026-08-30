@@ -4,12 +4,22 @@
 MinIO, REST, WebSocket и внутренний gRPC. Frontend — простые Admin и Demo на Vue 3/TypeScript/Vite.
 
 Проект начат заново по решению пользователя. Предыдущая реализация удалена; Git history сохранена.
-Phase 0 завершена; реализованы **шаги 1.1–1.2 Foundation**: API/worker, конфигурация,
+Phase 0 завершена; реализованы **шаги 1.1–1.3 Foundation**: API/worker, конфигурация,
 логи, HTTP lifecycle, PostgreSQL/Redis/Kafka/MinIO adapters и отдельные команды миграций/init.
-Чата, JWT, domain tables, jobs и frontend пока нет; deployment Compose — шаг 1.3.
+Добавлен development Compose с отдельными init jobs. Чата, JWT, domain tables, jobs и frontend пока нет.
 Readiness подтверждает готовность инфраструктуры, а не всего Chat API.
 
 ## Локальный запуск
+
+Основной путь — [development Compose](docs/DEVELOPMENT.md):
+
+```powershell
+$env:APP_ENV = 'development'
+go run ./cmd/dev-init
+docker compose up -d --build --wait --wait-timeout 180
+```
+
+Секреты в `.local/` и данные volumes сохраняются при повторных запусках. Это не production deployment.
 
 Toolchain закреплён на Go 1.27.0. Установленный Go с `GOTOOLCHAIN=auto` загрузит его по go.mod;
 при отключённой автоматической загрузке установите нужный toolchain отдельно.
@@ -147,8 +157,8 @@ Redis TTL, Kafka produce/consume, приватность S3, сбой и вос�
 
 ## Следующий этап
 
-Следующий шаг **1.3**: deployment Compose core, Dockerfiles и dev initialization. Затем
-JWT/Project/User/dev seed (1.4), policies/limits (1.5) и оставшаяся документация/проверки (1.6).
+Следующий шаг **1.4**: JWT/Project/User/dev seed. Затем policies/limits (1.5)
+и Swagger UI/приёмочные проверки (1.6).
 Foundation целиком пока не завершена.
 
 Целевой локальный процесс — clone → development configuration/secret initialization →

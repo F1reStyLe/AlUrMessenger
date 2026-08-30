@@ -2,7 +2,8 @@
 
 Реализованы pgx pool, goose migrations, Redis client, Kafka client и private S3/MinIO adapter.
 API и worker подключают их при старте и освобождают после HTTP drain. Business handlers,
-outbox/consumers/jobs и JWT ещё отсутствуют. Полный development Compose — следующий шаг 1.3.
+outbox/consumers/jobs и JWT ещё отсутствуют. Development Compose добавлен на шаге 1.3:
+[инструкция запуска](DEVELOPMENT.md).
 
 ## Подготовка и запуск
 

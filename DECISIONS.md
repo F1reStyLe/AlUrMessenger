@@ -159,3 +159,16 @@ Fixtures создают только новый Compose project со своим�
 но legacy pinned server используется только в изолированных local tests. Production storage
 нужно выбрать/подтвердить отдельно с учётом поддержки и security maintenance.
 Production готовность такого MinIO не заявляется. Пользователь уведомлён о риске в ходе шага.
+
+## D28 — Foundation 1.3: development deployment (2026-08-30)
+
+Один multi-stage Dockerfile собирает команды Go 1.27 и помещает их в distroless static
+nonroot image; оба base image закреплены digest. API/worker работают с read-only filesystem,
+без Linux capabilities. Собственная healthcheck command исключает необходимость shell/curl.
+Compose не публикует PostgreSQL/Redis/Kafka/MinIO на хост; HTTP доступен только через loopback.
+
+Dev-init разрешён только при APP_ENV=development. Секреты создаются криптографически случайно
+и не ротируются при повторном запуске; derived URLs должны совпадать. Каталог .local закрыт
+mode 0700, secret files readable для непривилегированного контейнера. Для Windows применяются
+ACL хоста. Используется [выдача Compose secrets отдельным сервисам](https://docs.docker.com/compose/how-tos/use-secrets/),
+а не полный mount каталога с чужими credentials. Не выдаём такой development deployment за production.

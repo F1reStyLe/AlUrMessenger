@@ -2,7 +2,7 @@
 
 Статус: архитектура MVP из Phase 0. Реализован bootstrap 1.1 и infrastructure 1.2:
 cmd/api/worker/migrate/minio-init, config/logging/httpserver, PostgreSQL/Redis/Kafka/MinIO adapters.
-Domain modules и deployment Compose ещё не реализованы.
+Development Compose/Dockerfiles добавлены в 1.3; domain modules ещё не реализованы.
 Основание: [ТЗ](docs/REQUIREMENTS.md), [решения](DECISIONS.md), [план](IMPLEMENTATION_PLAN.md).
 Проект создаётся с нуля; совместимость с удалённым прототипом не требуется.
 

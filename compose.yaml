@@ -1,0 +1,150 @@
+# DEVELOPMENT ONLY. No production secrets/TLS/HA are supplied by this file.
+# Run APP_ENV=development go run ./cmd/dev-init first. Do not delete .local or volumes to upgrade.
+x-runtime: &runtime
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: 25s
+  environment: &runtime-env
+    APP_ENV: development
+    HTTP_ADDR: 0.0.0.0:8080
+    POSTGRES_URL_FILE: /run/secrets/postgres_url
+    REDIS_URL_FILE: /run/secrets/redis_url
+    KAFKA_BROKERS: kafka:9092
+    KAFKA_SECURITY_PROTOCOL: PLAINTEXT
+    MINIO_ENDPOINT: http://minio:9000
+    MINIO_ACCESS_KEY_FILE: /run/secrets/minio_access_key
+    MINIO_SECRET_KEY_FILE: /run/secrets/minio_runtime_password
+  secrets: [postgres_url,redis_url,minio_access_key,minio_runtime_password]
+  depends_on:
+    postgres: {condition: service_healthy}
+    redis: {condition: service_healthy}
+    kafka: {condition: service_healthy}
+    migrate: {condition: service_completed_successfully}
+    minio-init: {condition: service_completed_successfully}
+    minio-account: {condition: service_completed_successfully}
+  healthcheck:
+    test: [CMD, /app/healthcheck]
+    interval: 5s
+    timeout: 3s
+    retries: 12
+    start_period: 10s
+
+services:
+  postgres:
+    image: postgres@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382
+    environment: {POSTGRES_DB: alur, POSTGRES_PASSWORD_FILE: /run/secrets/pg_admin_password}
+    secrets: [pg_admin_password,pg_runtime_password,pg_migration_password]
+    volumes: [pg-data:/var/lib/postgresql, ./deploy/postgres-init.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -h 127.0.0.1 -U postgres -d alur]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+  redis:
+    image: redis@sha256:c22af04bb576503bf16b3e34a1fd2fd82de0f765afd866d2e380145e0af30d78
+    command: [redis-server, /run/secrets/redis_config]
+    secrets: [redis_config,redis_password]
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH=$$(cat /run/secrets/redis_password) redis-cli ping | grep -q PONG']
+      interval: 2s
+      timeout: 3s
+      retries: 40
+  kafka:
+    image: apache/kafka:4.2.0@sha256:9516fb7634bad307d17c33b589fde9023003b0cb761374f500002b980a3149b9
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+    volumes: [kafka-data:/tmp/kraft-combined-logs]
+    depends_on: {kafka-init: {condition: service_completed_successfully}}
+    healthcheck:
+      test: [CMD-SHELL, '/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1']
+      interval: 5s
+      timeout: 10s
+      retries: 30
+  kafka-init:
+    # Docker creates a fresh volume root as uid 0. Grant its root to Kafka uid 1000,
+    # without recursive ownership changes or running the broker as root.
+    image: apache/kafka:4.2.0@sha256:9516fb7634bad307d17c33b589fde9023003b0cb761374f500002b980a3149b9
+    user: "0:0"
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    entrypoint: [/bin/sh, -c, 'chown 1000:1000 /data']
+    volumes: [kafka-data:/data]
+  minio:
+    # Archived Community server: local development only; production choice remains open.
+    image: quay.io/minio/minio@sha256:d249d1fb6966de4d8ad26c04754b545205ff15a62e4fd19ebd0f26fa5baacbc0
+    command: [server, /data]
+    environment: {MINIO_ROOT_USER: alur-admin, MINIO_ROOT_PASSWORD_FILE: /run/secrets/minio_admin_password}
+    secrets: [minio_admin_password]
+    volumes: [minio-data:/data]
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, http://localhost:9000/minio/health/live]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+  minio-account:
+    image: quay.io/minio/mc@sha256:fb8f773eac8ef9d6da0486d5dec2f42f219358bcb8de579d1623d518c9ebd4cc
+    entrypoint: [/bin/sh, /init/minio-account.sh]
+    secrets: [minio_admin_password,minio_runtime_password]
+    depends_on: {minio: {condition: service_healthy}}
+    volumes: [./deploy/minio-account.sh:/init/minio-account.sh:ro, ./deploy/minio-policy.json:/init/policy.json:ro]
+  minio-init:
+    build: {context: ., target: minio-init}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      APP_ENV: development
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: alur-admin
+      MINIO_SECRET_KEY_FILE: /run/secrets/minio_admin_password
+    secrets: [minio_admin_password]
+    depends_on: {minio: {condition: service_healthy}}
+  migrate:
+    build: {context: ., target: migrate}
+    command: [up]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment: {APP_ENV: development, MIGRATION_POSTGRES_URL_FILE: /run/secrets/migration_postgres_url}
+    secrets: [migration_postgres_url]
+    depends_on: {postgres: {condition: service_healthy}}
+  chat-api:
+    <<: *runtime
+    build: {context: ., target: api}
+    ports: ["127.0.0.1:${CHAT_API_PORT:-8080}:8080"]
+  chat-worker:
+    <<: *runtime
+    build: {context: ., target: worker}
+    ports: ["127.0.0.1:${CHAT_WORKER_PORT:-8081}:8080"]
+
+volumes:
+  pg-data:
+  redis-data:
+  kafka-data:
+  minio-data:
+secrets:
+  pg_admin_password: {file: "${CHAT_SECRET_DIR:-.local}/pg-admin-password"}
+  pg_runtime_password: {file: "${CHAT_SECRET_DIR:-.local}/pg-runtime-password"}
+  pg_migration_password: {file: "${CHAT_SECRET_DIR:-.local}/pg-migration-password"}
+  postgres_url: {file: "${CHAT_SECRET_DIR:-.local}/postgres-url"}
+  migration_postgres_url: {file: "${CHAT_SECRET_DIR:-.local}/migration-postgres-url"}
+  redis_url: {file: "${CHAT_SECRET_DIR:-.local}/redis-url"}
+  redis_config: {file: "${CHAT_SECRET_DIR:-.local}/redis.conf"}
+  redis_password: {file: "${CHAT_SECRET_DIR:-.local}/redis-password"}
+  minio_admin_password: {file: "${CHAT_SECRET_DIR:-.local}/minio-admin-password"}
+  minio_runtime_password: {file: "${CHAT_SECRET_DIR:-.local}/minio-runtime-password"}
+  minio_access_key: {file: "${CHAT_SECRET_DIR:-.local}/minio-access-key"}

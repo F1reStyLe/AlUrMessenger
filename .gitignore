@@ -43,3 +43,4 @@ Dockerfile-dev
 
 # Local implementation plan and work log
 /Agents.md
+/.local/

@@ -1,0 +1,10 @@
+.git
+.local
+.env
+.env.*
+Agents.md
+build
+dist
+output
+node_modules
+**/*.log
