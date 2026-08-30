@@ -36,6 +36,8 @@ OpenAPI описывает входной X-Request-ID, response headers, при
 - Human: `Authorization: Bearer <access JWT>`. Service/bot: `Authorization: ApiKey <secret>`
   только на разрешённых этим типам actor маршрутах. Query token не принимается.
 - Project извлекается из проверенного Actor, не выбирается произвольным client header.
+  Remote использует AUTH_PROJECT_ID из server config, Auth подтверждает только user ID.
+  User/admin определяется БД Chat на каждом запросе, не JWT claims; login/refresh/logout в Auth.
 - `X-Request-ID` принимается только при допустимом формате/длине, иначе генерируется сервером;
   возвращается в response и ошибке. Он не обеспечивает idempotency.
 - Body schema strict: unknown fields, недопустимые enum/UUID/размеры → 400/422.
@@ -170,7 +172,8 @@ Download URL не логируется/не кешируется shared cache, T
 
 ## Admin API
 
-Во всех строках требуется JWT project admin или API key с admin scope, разрешённый для admin use cases.
+Во всех строках требуется подтверждённая Auth идентичность с локальной ролью Project admin
+или API key с admin scope, разрешённый для admin use cases (последний пока не реализован).
 Все изменения и чувствительное чтение контента записываются в audit. Admin не может менять Project
 context, ключи серверного шифрования или глобальные security caps через project settings.
 

@@ -9,7 +9,7 @@
 ## Trust boundaries
 
 Клиент, JWT до verification, HTTP headers, WebSocket payload, metadata, filenames и webhook URL
-недоверенные. Внешний Auth доверен только для настроенного issuer/audience/Project. Сетевое
+недоверенные. Внешний Auth доверен только как настроенный источник идентичностей. Сетевое
 расположение gRPC/Kafka внутри Docker network само по себе не является аутентификацией.
 
 Пользователь одного Project не должен читать/изменять ресурс другого, даже зная UUID.
@@ -19,15 +19,18 @@ reply/forward/attachment проверяется независимо; cross-proj
 
 ## Authentication и секреты
 
-- JWT: exact algorithm allowlist RS256 для MVP, signature, iss, aud, exp, nbf при наличии,
-  обязательные непустые sub/project_id. Clock skew bounded, начально 30 секунд. Не принимать
-  none, algorithm confusion, refresh-token purpose или неожиданный тип claims.
-- Local public key либо JWKS из заранее разрешённого HTTPS endpoint. kid только выбирает
-  ключ доверенного issuer, не путь/URL. Unknown kid вызывает bounded refresh с cooldown;
-  неизвестный/недоступный ключ → отказ, не accept without verification.
-- Issuer/audience связываются с Project при operator provisioning. Значение JWT project_id
-  до verification допустимо только как lookup в заранее доверенной конфигурации, не как разрешение.
-- `external_user_id = sub`, внутренний user UUID уникален в Project. Auto-provision конкурентобезопасен
+- Remote JWT проверяется Auth через GET users/me на каждом запросе: signature/expiry/session/account.
+  Нет positive cache, локального signature-only fallback и передачи signing secret в Chat.
+  HTTP timeout 2s, bounded bodies/headers, redirects/proxies отключены, HTTPS в production.
+  Auth 401/403 даёт Chat 401, недоступность/неожиданный ответ — 503, без допуска пользователя.
+- AUTH_BASE_URL/AUTH_PROJECT_ID задаёт оператор; один Auth и Project на текущий API deployment.
+  Произвольные JWT jku/x5u/kid не выбирают endpoint. Не перепривязывать существующий Project
+  к независимому Auth: совпавшие user ID могут дать доступ к чужому профилю.
+- Offline dev-rsa только development/test: RS256, trusted issuer/audience/Project, exp/sub,
+  token_use=access, nbf/iat при наличии, 30s skew. Он не обеспечивает отзыв внешней сессии.
+- `external_user_id` — строковый ID из подтверждённого ответа Auth (sub в offline fixture).
+  user/admin хранится в Chat users.role; roles Auth/JWT игнорируются. Runtime DB не может
+  изменять роль, operator CLI работает только с существующим scoped профилем. Auto-provision конкурентобезопасен
   и не принимает admin/moderator role из profile payload. Display name генерируется случайно.
 - API keys — random 256 bits, hash-only SHA-256 storage, prefix для поиска и безопасной идентификации.
   Scopes, project, expiry/revocation проверяются на каждой операции. Secret показывается один раз.

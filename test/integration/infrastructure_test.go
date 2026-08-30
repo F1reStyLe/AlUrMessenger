@@ -133,6 +133,7 @@ func TestInfrastructureLifecycle(t *testing.T) {
 	adminCfg := cfg.Storage
 	t.Run("identity", func(t *testing.T) { testIdentity(t, pg, migrator) })
 	t.Run("policies", func(t *testing.T) { testPolicies(t, pg, migrator, cfg.RedisURL) })
+	t.Run("local-roles", func(t *testing.T) { testLocalRoles(t, pg, migrator) })
 	adminCfg.AccessKey = "test-root"
 	adminCfg.SecretKey = os.Getenv("ALUR_TEST_MINIO_ADMIN")
 	admin, err := objectstore.Open(adminCfg, cfg.Timeout)

@@ -6,7 +6,7 @@ MinIO, REST, WebSocket и внутренний gRPC. Frontend — простые
 Проект начат заново по решению пользователя. Предыдущая реализация удалена; Git history сохранена.
 Phase 0 и **Phase 1 — Foundation (1.1–1.6)** завершены: API/worker, конфигурация,
 логи, HTTP lifecycle, PostgreSQL/Redis/Kafka/MinIO adapters и отдельные команды миграций/init.
-Добавлены development Compose, Project/User, внешний JWT verifier, профили и dev seed/token.
+Добавлены development Compose, Project/User, проверка JWT через внешний Auth, локальные роли и профили.
 Чата, jobs и frontend пока нет. [Identity API и запуск seed](docs/IDENTITY.md).
 Добавлены [Project policies, CORS, Redis limits и audit](docs/POLICIES.md).
 Swagger UI доступен на `/docs/api`, спецификация — `/docs/api/openapi.json`.
@@ -18,18 +18,22 @@ Readiness подтверждает готовность инфраструкту
 
 ```powershell
 $env:APP_ENV = 'development'
+$env:CHAT_API_PORT = '18080' # Auth уже использует 8080
+$env:CHAT_WORKER_PORT = '18081'
 go run ./cmd/dev-init
 docker compose up -d --build --wait --wait-timeout 180
 docker compose run --rm --build seed
-$token = (go run ./cmd/dev-token --subject alice).Trim()
-Invoke-RestMethod http://127.0.0.1:8080/api/v1/me -Headers @{Authorization="Bearer $token"}
+# Получите access_token через login в Auth: http://127.0.0.1:8080/api/v1/auth/login.
+# Сохраните его в $token без вывода credentials в логи.
+Invoke-RestMethod http://127.0.0.1:18080/api/v1/me -Headers @{Authorization="Bearer $token"}
 ```
 
 Секреты в `.local/` и данные volumes сохраняются при повторных запусках. Это не production deployment.
-Откройте [Swagger UI](http://127.0.0.1:8080/docs/api). Authorize принимает JWT без префикса Bearer.
-Dev admin: `go run ./cmd/dev-token --subject admin --admin` (сохраните вывод в переменную,
-не в logs). Dev-token/seed требуют APP_ENV=development. Token живёт 15 минут, private key
-не передаётся API. Подробности: [Identity](docs/IDENTITY.md).
+Откройте [Swagger UI](http://127.0.0.1:18080/docs/api). Authorize принимает JWT без префикса Bearer.
+Compose по умолчанию использует Auth на `http://host.docker.internal:8080` и dev Project.
+Login/refresh/logout принадлежат Auth; Chat проверяет сессию на каждом запросе.
+Администратор назначается отдельно через `cmd/user-role`; глобальная роль Auth не переносится.
+Offline режим `AUTH_MODE=dev-rsa`, dev-token/seed и миграция старых ролей: [Identity](docs/IDENTITY.md).
 
 Toolchain закреплён на Go 1.27.0. Установленный Go с `GOTOOLCHAIN=auto` загрузит его по go.mod;
 при отключённой автоматической загрузке установите нужный toolchain отдельно.
@@ -52,7 +56,10 @@ PowerShell, из корня репозитория, в первом термин
 
 ```powershell
 $env:APP_ENV = 'development'
-$env:AUTH_PUBLIC_KEY_FILE = '.local/jwt-public.pem'
+$env:HTTP_ADDR = '127.0.0.1:18080'
+$env:AUTH_MODE = 'remote'
+$env:AUTH_BASE_URL = 'http://127.0.0.1:8080'
+$env:AUTH_PROJECT_ID = '00000000-0000-4000-8000-000000000001'
 go run ./cmd/api
 ```
 
@@ -63,14 +70,14 @@ $env:APP_ENV = 'development'
 go run ./cmd/worker
 ```
 
-В Linux/macOS аналогично: `APP_ENV=development go run ./cmd/api` и
+В Linux/macOS аналогично, с теми же Auth/infrastructure environment: `APP_ENV=development HTTP_ADDR=127.0.0.1:18080 go run ./cmd/api` и
 `APP_ENV=development go run ./cmd/worker` в отдельных терминалах.
 API по умолчанию слушает `127.0.0.1:8080`, worker probes — `127.0.0.1:8081`.
 Worker пока обслуживает только probes/lifecycle; outbox/consumers/jobs ещё не реализованы.
 
 ```powershell
-curl.exe -i http://127.0.0.1:8080/health/live
-curl.exe -i http://127.0.0.1:8080/health/ready
+curl.exe -i http://127.0.0.1:18080/health/live
+curl.exe -i http://127.0.0.1:18080/health/ready
 curl.exe -i http://127.0.0.1:8081/health/live
 ```
 
@@ -101,7 +108,9 @@ development/test/production. Неверные/пустые заданные зн
 | HTTP_IDLE_TIMEOUT | 60s |
 | HTTP_MAX_HEADER_BYTES | 32768; 1024–1048576 |
 | HTTP_MAX_BODY_BYTES | 1048576; 1–16777216, включая chunked JSON requests |
-| AUTH_PUBLIC_KEY_FILE | Обязательный RSA public PEM >=2048 bits для API; проверяется до bind |
+| AUTH_MODE | remote по умолчанию; dev-rsa только development/test, без fallback |
+| AUTH_BASE_URL / AUTH_PROJECT_ID | Обязательны для remote; trusted Auth endpoint (HTTPS в production) и существующий Project UUID |
+| AUTH_PUBLIC_KEY_FILE | Только dev-rsa: RSA public PEM >=2048 bits; проверяется до bind |
 | CORS_ALLOWED_ORIGINS | Exact origins через запятую; пусто — cross-origin запрещён; production HTTPS |
 | RATE_IP_PER_MINUTE / RATE_USER_PER_MINUTE | 120 / 60; каждое 1..100000; Redis fixed 60s window |
 

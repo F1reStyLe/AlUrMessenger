@@ -35,7 +35,6 @@ func provisionRun(command string, args []string, out io.Writer) error {
 	flags.SetOutput(io.Discard)
 	if command == "dev-token" {
 		subject := flags.String("subject", "alice", "external identity")
-		admin := flags.Bool("admin", false, "Project admin role")
 		key := flags.String("key", ".local/jwt-private.pem", "dev private key")
 		if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 			return fmt.Errorf("invalid flags")
@@ -44,7 +43,7 @@ func provisionRun(command string, args []string, out io.Writer) error {
 		if err != nil || len(data) > 16384 {
 			return fmt.Errorf("invalid key")
 		}
-		token, err := provision.Token(env, data, *subject, *admin)
+		token, err := provision.Token(env, data, *subject)
 		if err != nil {
 			return err
 		}
@@ -52,11 +51,16 @@ func provisionRun(command string, args []string, out io.Writer) error {
 		return err
 	}
 	var p provision.Project
+	var role provision.RoleAssignment
 	if command == "project" {
 		flags.StringVar(&p.ID, "id", "", "Project UUID")
 		flags.StringVar(&p.Name, "name", "", "Project name")
 		flags.StringVar(&p.Issuer, "issuer", "", "trusted HTTPS issuer")
 		flags.StringVar(&p.Audience, "audience", "", "trusted audience")
+	} else if command == "user-role" {
+		flags.StringVar(&role.ProjectID, "project-id", "", "existing Project UUID")
+		flags.StringVar(&role.ExternalID, "subject", "", "existing external user ID")
+		flags.StringVar(&role.Role, "role", "", "Chat role: user or admin")
 	} else if command != "seed" {
 		return fmt.Errorf("unknown command")
 	}
@@ -65,6 +69,11 @@ func provisionRun(command string, args []string, out io.Writer) error {
 	}
 	if command == "project" {
 		if err := p.Validate(); err != nil {
+			return err
+		}
+	}
+	if command == "user-role" {
+		if err := role.Validate(); err != nil {
 			return err
 		}
 	}
@@ -81,6 +90,8 @@ func provisionRun(command string, args []string, out io.Writer) error {
 	defer db.Close(ctx)
 	if command == "seed" {
 		err = provision.Seed(ctx, env, db)
+	} else if command == "user-role" {
+		err = provision.SetRole(ctx, db, role)
 	} else {
 		err = provision.Create(ctx, db, p)
 	}

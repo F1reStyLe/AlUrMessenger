@@ -44,18 +44,22 @@ func (s *Store) Update(ctx context.Context, a identity.Actor, p policy.Patch, tr
 		return policy.Settings{}, err
 	}
 	defer tx.Rollback(ctx)
-	var active, banned bool
+	var active, banned, admin bool
 	if err = tx.QueryRow(ctx, "SELECT status='active' FROM chat.projects WHERE id=$1 FOR UPDATE", a.ProjectID).Scan(&active); err != nil {
 		return policy.Settings{}, err
 	}
 	if !active {
 		return policy.Settings{}, auth.ErrUnauthenticated
 	}
-	if err = tx.QueryRow(ctx, "SELECT banned_at IS NOT NULL FROM chat.users WHERE project_id=$1 AND id=$2 FOR SHARE", a.ProjectID, a.User.ID).Scan(&banned); err != nil {
+	if err = tx.QueryRow(ctx, "SELECT banned_at IS NOT NULL,role='admin' FROM chat.users WHERE project_id=$1 AND id=$2 FOR SHARE", a.ProjectID, a.User.ID).Scan(&banned, &admin); err != nil {
 		return policy.Settings{}, err
 	}
 	if banned {
 		return policy.Settings{}, identity.ErrBanned
+	}
+	// Recheck the local role under lock so a concurrent demotion cannot authorize a write.
+	if !admin {
+		return policy.Settings{}, policy.ErrForbidden
 	}
 	current, err := scan(tx.QueryRow(ctx, projection, a.ProjectID))
 	if err != nil {

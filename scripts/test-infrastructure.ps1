@@ -99,7 +99,7 @@ try {
     }
     $runtimeEnv = Join-Path $secretDir 'runtime.env'
     $runtimeSettings = @(
-        'APP_ENV=test', 'HTTP_ADDR=0.0.0.0:8080', 'INFRA_TIMEOUT=5s', 'AUTH_PUBLIC_KEY_FILE=/jwt-public.pem',
+        'APP_ENV=test', 'HTTP_ADDR=0.0.0.0:8080', 'INFRA_TIMEOUT=5s', 'AUTH_MODE=dev-rsa', 'AUTH_PUBLIC_KEY_FILE=/jwt-public.pem',
         "POSTGRES_URL=postgres://alur_runtime:$($secrets['postgres-runtime'])@postgres:5432/alur?sslmode=disable",
         "REDIS_URL=redis://:$($secrets['redis'])@redis:6379/0",
         'KAFKA_BROKERS=kafka:29092', 'KAFKA_SECURITY_PROTOCOL=PLAINTEXT',

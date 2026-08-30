@@ -152,13 +152,18 @@ func testIdentity(t *testing.T, db *pgxpool.Pool, operator *pgx.Conn) {
 	if code, _ := request("PATCH", "/api/v1/me", `{"display_name":"Alice"}`); code != 200 {
 		t.Fatal("profile patch failed", code)
 	}
+	for _, body := range []string{`{"role":"admin"}`, `{"roles":["admin"]}`} {
+		if code, _ := request("PATCH", "/api/v1/me", body); code != 400 {
+			t.Fatal("profile role escalation accepted", code)
+		}
+	}
 	if code, data := request("GET", "/api/v1/me", ""); code != 200 || !strings.Contains(string(data), "Alice") {
 		t.Fatal("profile not preserved")
 	}
 	if code, _ := request("GET", "/api/v1/users/"+b.User.ID, ""); code != 404 {
 		t.Fatal("cross-project HTTP leak", code)
 	}
-	if code, data := request("GET", "/api/v1/users?limit=1", ""); code != 200 || strings.Contains(string(data), "external_user_id") {
+	if code, data := request("GET", "/api/v1/users?limit=1", ""); code != 200 || strings.Contains(string(data), "external_user_id") || strings.Contains(string(data), `"role`) {
 		t.Fatal("public profile leak")
 	} else {
 		var page struct {

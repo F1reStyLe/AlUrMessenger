@@ -1,10 +1,13 @@
 # Project policies — Foundation 1.5
 
-Только проверенный JWT с ролью admin может GET/PATCH `/admin/v1/project`,
+Только пользователь с ролью admin в БД Chat может GET/PATCH `/admin/v1/project`,
 GET/PATCH `/admin/v1/feature-flags` и GET `/admin/v1/audit-logs` своего Project.
 Role user получает 403; moderator не является глобальной ролью. Banned admin может
 читать, но не писать. Operator пока управляет ban через БД; публичный ban API относится
 к последующей фазе moderation. Клиент не задаёт Project/actor в payload.
+JWT доказывает идентичность через Auth, но не назначает права. Роль читается при каждом
+запросе и повторно проверяется под lock при записи. Операторское назначение/понижение
+через user-role описано в [Identity](IDENTITY.md); перевыпуск JWT не нужен.
 
 Оба GET возвращают единый Settings DTO. PATCH project принимает частичные flags,
 max_upload_size (1..52428800 bytes), message_retention_days (1..3650); PATCH feature-flags

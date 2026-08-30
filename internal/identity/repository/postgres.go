@@ -25,7 +25,7 @@ func (s *Store) AuthProject(ctx context.Context, id string) (auth.Project, error
 // scanUser централизует DTO projection; ban metadata/external ID не сериализуются публично.
 func scanUser(row pgx.Row) (identity.User, error) {
 	var u identity.User
-	err := row.Scan(&u.ID, &u.DisplayName, &u.AvatarURL, &u.Kind, &u.Status, &u.LastSeenAt, &u.ExternalID, &u.Banned)
+	err := row.Scan(&u.ID, &u.DisplayName, &u.AvatarURL, &u.Kind, &u.Status, &u.LastSeenAt, &u.ExternalID, &u.Banned, &u.Role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = identity.ErrNotFound
 	}
@@ -33,7 +33,7 @@ func scanUser(row pgx.Row) (identity.User, error) {
 }
 
 // columns остаётся одинаковым для всех profile projections.
-const columns = "id::text,display_name,avatar_url,kind,status,last_seen_at,COALESCE(external_user_id,''),banned_at IS NOT NULL"
+const columns = "id::text,display_name,avatar_url,kind,status,last_seen_at,COALESCE(external_user_id,''),banned_at IS NOT NULL,role"
 
 // EnsureUser сериализует policy с shared Project lock, а uniqueness разрешает
 // конкурентный первый вход. No-op upsert возвращает существующий профиль, не меняя имя/роль.

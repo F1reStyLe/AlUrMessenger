@@ -42,6 +42,8 @@ adapters, отдельные migrate/minio-init commands и unit/integration tes
 Шаг 1.3 добавляет development Compose/Dockerfiles/dev-init с постоянными volumes и отдельными jobs.
 Шаг 1.4 выполнен: Project/User/JWT/профили/provisioning/seed, unit + repository security tests.
 Шаг 1.5 выполнен: Project flags/settings, admin permissions, Redis limits, CORS и append-only audit.
+После Foundation уточнён контракт Auth (D32): live JWT/session check через Auth, локальные
+роли Chat, operator user-role, migration 4. JWT role claims больше не назначают полномочия.
 Шаг 1.6 выполнен: embedded Swagger UI, OpenAPI validation, unit/repository/HTTP acceptance.
 Foundation завершён; следующий шаг — Phase 2. Реализованные endpoints описаны в OpenAPI; test fixture Compose
 находится в test/integration. Readiness возвращает 200 только при доступных четырёх зависимостях

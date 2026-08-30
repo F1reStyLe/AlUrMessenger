@@ -10,10 +10,12 @@ PostgreSQL, Redis, Kafka и MinIO не публикуют порты на хос
 
 ```powershell
 $env:APP_ENV = 'development'
+$env:CHAT_API_PORT = '18080' # Auth слушает 8080
+$env:CHAT_WORKER_PORT = '18081'
 go run ./cmd/dev-init
 docker compose up -d --build --wait --wait-timeout 180
 docker compose run --rm --build seed
-curl.exe http://127.0.0.1:8080/health/ready
+curl.exe http://127.0.0.1:18080/health/ready
 ```
 
 Linux/macOS: `APP_ENV=development go run ./cmd/dev-init`, затем та же команда Compose.
@@ -30,7 +32,7 @@ Compose выполняет отдельные одноразовые jobs: migra
 Kafka-init назначает корневой каталог нового volume uid 1000 без рекурсивного chown;
 сам broker не запускается от root.
 API/worker стартуют после них и после healthy dependencies. Runtime получает только свои secrets;
-PostgreSQL DDL credentials доступны migrate/operator seed, MinIO root — только init jobs.
+PostgreSQL DDL credentials доступны migrate/operator seed/user-role, MinIO root — только init jobs.
 API/worker images — multi-stage Go build + distroless, uid/gid 65532, read-only root filesystem,
 без capabilities, shell и package manager. Docker context исключает secrets, build и Agents.md.
 
@@ -51,5 +53,10 @@ volumes: новые credentials не совпадут с инициализир�
 Ожидаемые завершённые jobs отображаются как Exited (0), API/worker — healthy.
 SIGTERM инициирует HTTP drain и cleanup; Compose предоставляет 25 секунд до принудительной остановки.
 Readiness пока подтверждает инфраструктуру; готовность полного чата зависит от следующих фаз.
-JWT выдаётся локальной dev-only командой; см. [IDENTITY.md](IDENTITY.md).
+По умолчанию JWT выдаёт внешний Auth на 8080, Chat использует AUTH_MODE=remote.
+AUTH_BASE_URL из контейнера — http://host.docker.internal:8080 (Docker Desktop);
+в других environments задайте доступный контейнеру доверенный URL явно.
+AUTH_PROJECT_ID выбирает один заранее созданный Project на экземпляр API.
+Роли Chat назначаются через user-role; login/refresh/logout остаются в Auth.
+Offline dev-rsa включается явно; см. [IDENTITY.md](IDENTITY.md).
 Swagger UI находится на API `/docs/api`, без Node/CDN dependency при запуске.

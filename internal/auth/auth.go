@@ -23,18 +23,19 @@ type Project struct {
 	Active               bool
 }
 
-// Identity существует только после проверки подписи и всех обязательных claims.
-// Admin относится только к ProjectID; moderator не является глобальной ролью.
+// Identity содержит проверенную внешнюю идентичность. Admin заполняется application
+// service только из Chat DB после provisioning; внешние роли не являются правами Chat.
 type Identity struct {
 	ProjectID, ExternalID string
 	Admin                 bool
 }
 
-// Claims — минимальный access token contract. token_use не позволяет принять refresh token.
+// Claims — контракт offline dev-rsa fixture. Legacy Roles декодируются, но никогда
+// не дают прав Chat; token_use не позволяет принять dev refresh token как access.
 type Claims struct {
 	jwt.RegisteredClaims
 	ProjectID string   `json:"project_id"`
-	Roles     []string `json:"roles"`
+	Roles     []string `json:"roles,omitempty"`
 	TokenUse  string   `json:"token_use"`
 }
 
@@ -48,7 +49,8 @@ type Verifier interface {
 	Verify(context.Context, string) (Identity, error)
 }
 
-// RSA доверяет только локальному public key и project bindings, не JWT jku/x5u/kid URLs.
+// RSA — только offline development fixture: не поддерживает отзыв внешней сессии.
+// Доверяет локальному public key и project bindings, не JWT jku/x5u/kid URLs.
 type RSA struct {
 	key      *rsa.PublicKey
 	projects Resolver
@@ -108,18 +110,6 @@ func (v *RSA) Verify(ctx context.Context, raw string) (Identity, error) {
 	if err != nil || !token.Valid || claims.ProjectID != project.ID || claims.TokenUse != "access" || strings.TrimSpace(claims.Subject) == "" || len(claims.Subject) > 256 {
 		return Identity{}, ErrUnauthenticated
 	}
-	identity := Identity{ProjectID: project.ID, ExternalID: claims.Subject}
-	if len(claims.Roles) == 0 || len(claims.Roles) > 2 {
-		return Identity{}, ErrUnauthenticated
-	}
-	for _, role := range claims.Roles {
-		switch role {
-		case "admin":
-			identity.Admin = true
-		case "user":
-		default:
-			return Identity{}, ErrUnauthenticated
-		}
-	}
-	return identity, nil
+	// Legacy development JWT roles are intentionally ignored, including "admin".
+	return Identity{ProjectID: project.ID, ExternalID: claims.Subject}, nil
 }

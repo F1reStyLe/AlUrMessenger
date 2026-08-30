@@ -127,6 +127,9 @@ services:
     environment:
       <<: *runtime-env
       AUTH_PUBLIC_KEY_FILE: /run/secrets/auth_public_key
+      AUTH_MODE: "${AUTH_MODE:-remote}"
+      AUTH_BASE_URL: "${AUTH_BASE_URL:-http://host.docker.internal:8080}"
+      AUTH_PROJECT_ID: "${AUTH_PROJECT_ID:-00000000-0000-4000-8000-000000000001}"
       CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174},http://127.0.0.1:${CHAT_API_PORT:-8080},http://localhost:${CHAT_API_PORT:-8080}"
       RATE_IP_PER_MINUTE: "${RATE_IP_PER_MINUTE:-120}"
       RATE_USER_PER_MINUTE: "${RATE_USER_PER_MINUTE:-60}"
@@ -138,15 +141,20 @@ services:
     build: {context: ., target: worker}
     ports: ["127.0.0.1:${CHAT_WORKER_PORT:-8081}:8080"]
   seed:
-    profiles: [tools]
-    build: {context: ., target: api}
+    <<: &operator-tool
+      profiles: [tools]
+      build: {context: ., target: api}
+      read_only: true
+      cap_drop: [ALL]
+      security_opt: [no-new-privileges:true]
+      environment: {APP_ENV: development, MIGRATION_POSTGRES_URL_FILE: /run/secrets/migration_postgres_url}
+      secrets: [migration_postgres_url]
+      depends_on: {migrate: {condition: service_completed_successfully}}
     entrypoint: [/app/seed]
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    environment: {APP_ENV: development, MIGRATION_POSTGRES_URL_FILE: /run/secrets/migration_postgres_url}
-    secrets: [migration_postgres_url]
-    depends_on: {migrate: {condition: service_completed_successfully}}
+  # Explicit operator command, never mounted into the HTTP runtime credential set.
+  user-role:
+    <<: *operator-tool
+    entrypoint: [/app/user-role]
 
 volumes:
   pg-data:

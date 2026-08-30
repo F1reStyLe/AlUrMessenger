@@ -88,8 +88,8 @@ func TestAccessContract(t *testing.T) {
 				t.Fatal(err)
 			}
 			id, err := verifier.Verify(t.Context(), token)
-			if name == "valid" || name == "admin" {
-				if err != nil || id.ProjectID != p.ID || id.Admin != (name == "admin") {
+			if name == "valid" || name == "admin" || name == "moderator" || name == "no-roles" {
+				if err != nil || id.ProjectID != p.ID || id.Admin {
 					t.Fatal("valid access rejected")
 				}
 			} else if err != ErrUnauthenticated {

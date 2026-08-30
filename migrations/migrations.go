@@ -10,4 +10,4 @@ import "embed"
 var Files embed.FS
 
 // Version — ожидаемая версия схемы текущего бинарника; изменяется вместе с SQL.
-const Version int64 = 3
+const Version int64 = 4

@@ -28,6 +28,7 @@ func testEnvironment(t *testing.T) {
 		"MINIO_ENDPOINT": "http://127.0.0.1:9000", "MINIO_BUCKET": "chat-attachments", "MINIO_REGION": "us-east-1",
 		"MINIO_ACCESS_KEY": "unit-test", "MINIO_SECRET_KEY": "unit-test-secret", "INFRA_TIMEOUT": "1s",
 		"CORS_ALLOWED_ORIGINS": "", "RATE_IP_PER_MINUTE": "120", "RATE_USER_PER_MINUTE": "60",
+		"AUTH_MODE": "dev-rsa", "AUTH_BASE_URL": "", "AUTH_PROJECT_ID": "", "AUTH_PUBLIC_KEY_FILE": "",
 	} {
 		t.Setenv(key, value)
 	}

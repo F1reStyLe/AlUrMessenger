@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -55,8 +56,8 @@ func Create(ctx context.Context, db *pgx.Conn, p Project) error {
 	return err
 }
 
-// Seed не назначает роли в БД: admin role приходит только из подписанного JWT.
-// Existing profiles не перезаписываются; список ограничен одним явным dev Project.
+// Seed назначает локального admin только при первом создании dev fixture.
+// Существующие профили/роли не перезаписываются: повтор не отменяет ручное понижение.
 func Seed(ctx context.Context, environment string, db *pgx.Conn) error {
 	if environment != "development" {
 		return errors.New("SEED_REQUIRES_DEVELOPMENT")
@@ -65,7 +66,11 @@ func Seed(ctx context.Context, environment string, db *pgx.Conn) error {
 		return err
 	}
 	for _, name := range []string{"admin", "alice", "bob"} {
-		if _, err := db.Exec(ctx, `INSERT INTO chat.users(id,project_id,external_user_id,display_name) VALUES($1,$2,$3,$3) ON CONFLICT(project_id,external_user_id) DO NOTHING`, uuid.NewString(), DevProject, name); err != nil {
+		role := "user"
+		if name == "admin" {
+			role = "admin"
+		}
+		if _, err := db.Exec(ctx, `INSERT INTO chat.users(id,project_id,external_user_id,display_name,role) VALUES($1,$2,$3,$3,$4) ON CONFLICT(project_id,external_user_id) DO NOTHING`, uuid.NewString(), DevProject, name, role); err != nil {
 			return err
 		}
 	}
@@ -77,7 +82,7 @@ func Seed(ctx context.Context, environment string, db *pgx.Conn) error {
 
 // Token выпускается только в development; срок 15 минут, явный access purpose и RS256.
 // Caller несёт ответственность за передачу результата пользователю без logging.
-func Token(environment string, privatePEM []byte, subject string, admin bool) (string, error) {
+func Token(environment string, privatePEM []byte, subject string) (string, error) {
 	if environment != "development" {
 		return "", errors.New("DEV_TOKEN_REQUIRES_DEVELOPMENT")
 	}
@@ -89,10 +94,50 @@ func Token(environment string, privatePEM []byte, subject string, admin bool) (s
 		return "", errors.New("DEV_KEY_INVALID")
 	}
 	now := time.Now()
-	roles := []string{"user"}
-	if admin {
-		roles = []string{"admin"}
-	}
-	claims := auth.Claims{RegisteredClaims: jwt.RegisteredClaims{Issuer: DevIssuer, Subject: subject, Audience: jwt.ClaimStrings{DevAudience}, IssuedAt: jwt.NewNumericDate(now), NotBefore: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(now.Add(15 * time.Minute)), ID: uuid.NewString()}, ProjectID: DevProject, Roles: roles, TokenUse: "access"}
+	// Development tokens prove identity only, exactly as tokens from the real Auth.
+	claims := auth.Claims{RegisteredClaims: jwt.RegisteredClaims{Issuer: DevIssuer, Subject: subject, Audience: jwt.ClaimStrings{DevAudience}, IssuedAt: jwt.NewNumericDate(now), NotBefore: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(now.Add(15 * time.Minute)), ID: uuid.NewString()}, ProjectID: DevProject, TokenUse: "access"}
 	return jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(key)
+}
+
+// RoleAssignment identifies one existing Chat profile, never an Auth-global role.
+// Operators use the external ID returned by /api/v1/me, scoped to the exact Project.
+type RoleAssignment struct{ ProjectID, ExternalID, Role string }
+
+// Validate rejects ambiguous scope and conversation roles before opening the DB.
+func (r RoleAssignment) Validate() error {
+	id, err := uuid.Parse(r.ProjectID)
+	if err != nil || id == uuid.Nil || r.ProjectID != id.String() || strings.TrimSpace(r.ExternalID) != r.ExternalID || r.ExternalID == "" || len(r.ExternalID) > 256 || strings.IndexFunc(r.ExternalID, unicode.IsControl) != -1 || (r.Role != "user" && r.Role != "admin") {
+		return errors.New("ROLE_ASSIGNMENT_INVALID")
+	}
+	return nil
+}
+
+// SetRole is an operator-only command; runtime credentials cannot modify role.
+// Project → user lock order matches policy writes: once a demotion commits, a
+// waiting policy mutation rechecks the DB role and cannot use a stale admin Actor.
+// Missing users are not created here: identity must first be confirmed by Auth.
+func SetRole(ctx context.Context, db *pgx.Conn, r RoleAssignment) error {
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var active bool
+	if err := tx.QueryRow(ctx, "SELECT status='active' FROM chat.projects WHERE id=$1 FOR UPDATE", r.ProjectID).Scan(&active); err != nil {
+		return err
+	}
+	if !active {
+		return errors.New("PROJECT_INACTIVE")
+	}
+	result, err := tx.Exec(ctx, "UPDATE chat.users SET role=$3,updated_at=now() WHERE project_id=$1 AND external_user_id=$2", r.ProjectID, r.ExternalID, r.Role)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return errors.New("USER_NOT_FOUND")
+	}
+	return tx.Commit(ctx)
 }

@@ -3,7 +3,8 @@
 Статус: архитектура MVP из Phase 0. Реализован bootstrap 1.1 и infrastructure 1.2:
 cmd/api/worker/migrate/minio-init, config/logging/httpserver, PostgreSQL/Redis/Kafka/MinIO adapters.
 Development Compose/Dockerfiles добавлены в 1.3; identity/auth/provisioning — в 1.4.
-HTTP identity transport → application interfaces → PostgreSQL repository; external JWT — RS256.
+HTTP identity transport → application interfaces → PostgreSQL repository. Внешний JWT
+проверяется через Auth; роли принадлежат Chat DB (D32), RS256 оставлен для offline dev fixture.
 В 1.5 добавлены policy application/repository/transport и Redis/CORS admission middleware.
 Foundation 1.6 завершён: Swagger UI/spec embedded, unit/integration/API acceptance.
 Phase 2 и последующие возможности ниже остаются архитектурным планом.
@@ -105,6 +106,8 @@ README.md
 Каждый вход проходит authentication. Доверенный Actor содержит project_id, actor_type, actor_id,
 external_user_id при наличии, global roles/scopes. Project не выбирается по непроверенному header
 или client payload. Если маршрут содержит project_id, он обязан совпадать с проверенным context.
+Текущий remote API обслуживает AUTH_PROJECT_ID из серверной конфигурации; Auth возвращает
+только идентичность. Role user/admin берётся из профиля Chat отдельно в каждом Project.
 
 Repository methods требуют ProjectID явно; SQL фильтрует project_id даже при UUID lookup.
 Composite FK и UNIQUE защищают связанные сущности от межпроектных ссылок. Redis keys, MinIO keys,

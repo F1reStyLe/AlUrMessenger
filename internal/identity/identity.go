@@ -23,6 +23,7 @@ type User struct {
 	LastSeenAt  *time.Time `json:"last_seen_at"`
 	ExternalID  string     `json:"-"`
 	Banned      bool       `json:"-"`
+	Role        string     `json:"-"` // Chat-owned Project role; never copied from Auth.
 }
 
 // Actor связывает проверенный JWT и внутренний профиль одного Project.
@@ -85,5 +86,7 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Actor, error)
 	if err != nil {
 		return Actor{}, err
 	}
+	// Even a custom verifier cannot grant application permissions through token claims.
+	id.Admin = user.Role == "admin"
 	return Actor{Identity: id, User: user}, nil
 }

@@ -73,6 +73,21 @@ func testPolicies(t *testing.T, db *pgxpool.Pool, operator *pgx.Conn, redisURL s
 	if err != nil {
 		t.Fatal(err)
 	}
+	if admin.Admin {
+		t.Fatal("JWT role granted admin before operator assignment")
+	}
+	if _, err = identities.Authenticate(t.Context(), otherToken); err != nil {
+		t.Fatal(err)
+	}
+	for _, project := range []string{p.ID, q.ID} {
+		if err = provision.SetRole(t.Context(), operator, provision.RoleAssignment{ProjectID: project, ExternalID: "admin", Role: "admin"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	admin, err = identities.Authenticate(t.Context(), adminToken)
+	if err != nil || !admin.Admin {
+		t.Fatal("local admin not resolved")
+	}
 	options, err := redis.ParseURL(redisURL)
 	if err != nil {
 		t.Fatal(err)
@@ -135,6 +150,9 @@ func testPolicies(t *testing.T, db *pgxpool.Pool, operator *pgx.Conn, redisURL s
 	}
 	if code, _, _ := request("GET", "/admin/v1/project", userToken, "", ""); code != 403 {
 		t.Fatal("user has admin access", code)
+	}
+	if code, _, _ := request("GET", "/admin/v1/project", sign(p.ID, "user", "admin"), "", ""); code != 403 {
+		t.Fatal("signed external admin bypassed local role", code)
 	}
 	if code, _, _ := request("GET", "/admin/v1/project", "", "", ""); code != 401 {
 		t.Fatal("anonymous admin", code)
@@ -221,6 +239,22 @@ func testPolicies(t *testing.T, db *pgxpool.Pool, operator *pgx.Conn, redisURL s
 	current, err := policies.Store.Get(t.Context(), p.ID)
 	if err != nil || current.Version != 3 || current.Flags["allow_images"] {
 		t.Fatal("audit failure did not rollback mutation")
+	}
+	// The old token immediately loses privileges, and a previously built Actor
+	// cannot bypass demotion when a policy transaction rechecks its current role.
+	assignment := provision.RoleAssignment{ProjectID: p.ID, ExternalID: "admin", Role: "user"}
+	if err = provision.SetRole(t.Context(), operator, assignment); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, _ := request("GET", "/admin/v1/project", adminToken, "", ""); code != 403 {
+		t.Fatal("demotion requires new JWT", code)
+	}
+	if _, err = policies.Update(t.Context(), admin, patch, policy.Trace{RequestID: uuid.NewString()}); err != policy.ErrForbidden {
+		t.Fatal("stale actor bypassed role check", err)
+	}
+	assignment.Role = "admin"
+	if err = provision.SetRole(t.Context(), operator, assignment); err != nil {
+		t.Fatal(err)
 	}
 	if _, err = operator.Exec(t.Context(), "UPDATE chat.users SET banned_at=now() WHERE project_id=$1 AND id=$2", p.ID, admin.User.ID); err != nil {
 		t.Fatal(err)

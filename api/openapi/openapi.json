@@ -3,7 +3,7 @@
   "info": {
     "title": "Universal Chat Service",
     "version": "0.6.0",
-    "description": "Реализованный Foundation: infrastructure probes, внешний RS256 access JWT, Project-scoped профили, admin settings/feature flags и append-only audit. Project берётся из проверенного JWT; roles user/admin, обязательные iss/aud/exp/sub/project_id/token_use=access, clock skew 30s. Swagger UI на /docs/api, все ресурсы локальные. Worker предоставляет только probes. Сообщения/conversations/WS/jobs ещё не реализованы. По умолчанию Redis limits: 120/IP и 60/Project-user за 60s с первого запроса; fail closed 503. CORS — exact allowlist, без cookies. Все application responses содержат X-Request-ID, no-store и nosniff; ошибки net/http до middleware могут иметь иной формат."
+    "description": "Реализованный Foundation: infrastructure probes, access JWT внешнего Auth, Project-scoped профили, локальные роли user/admin, settings/feature flags и append-only audit. AUTH_MODE=remote: Chat проверяет JWT на каждом запросе через Auth GET /api/v1/users/me без положительного кеша; Auth подтверждает идентичность и действующую сессию. Login/refresh/logout выполняются в Auth, второй токен Chat не нужен. Project задаёт серверный AUTH_PROJECT_ID, роль читает Chat из своей БД; роли Auth/JWT не дают прав. После logout Auth старые access JWT получают Chat 401; недоступность Auth даёт 503 без fallback. Один Auth/Project на экземпляр API. Offline dev-rsa допустим только development/test, без отзыва внешних сессий. Swagger UI на /docs/api, ресурсы локальные. Worker предоставляет только probes. Conversations/messages/WS/jobs пока не реализованы. Redis limits: 120/IP и 60/Project-user за 60s, fail closed 503. CORS — exact allowlist, без cookies. Application responses содержат X-Request-ID, no-store, nosniff; ошибки net/http до middleware могут иметь иной формат."
   },
   "servers": [
     {
@@ -132,7 +132,7 @@
             }
           },
           "401": {
-            "description": "Missing/invalid access token or inactive/unknown Project",
+            "description": "UNAUTHENTICATED: bearer отсутствует/некорректен, Auth отверг просроченную или отозванную сессию/заблокированный аккаунт, либо Project неактивен.",
             "content": {
               "application/json": {
                 "schema": {
@@ -215,7 +215,7 @@
             }
           },
           "503": {
-            "description": "Database or lifecycle unavailable",
+            "description": "DEPENDENCY_UNAVAILABLE: недоступны Auth/БД/Redis или ответ Auth некорректен. Доступ не предоставляется, положительный кеш/fallback отсутствуют; клиент не должен удалять действующий токен из-за временного 503.",
             "content": {
               "application/json": {
                 "schema": {
@@ -262,7 +262,7 @@
             }
           },
           "401": {
-            "description": "Missing/invalid access token or inactive/unknown Project",
+            "description": "UNAUTHENTICATED: bearer отсутствует/некорректен, Auth отверг просроченную или отозванную сессию/заблокированный аккаунт, либо Project неактивен.",
             "content": {
               "application/json": {
                 "schema": {
@@ -345,7 +345,7 @@
             }
           },
           "503": {
-            "description": "Database or lifecycle unavailable",
+            "description": "DEPENDENCY_UNAVAILABLE: недоступны Auth/БД/Redis или ответ Auth некорректен. Доступ не предоставляется, положительный кеш/fallback отсутствуют; клиент не должен удалять действующий токен из-за временного 503.",
             "content": {
               "application/json": {
                 "schema": {
@@ -605,7 +605,7 @@
             }
           },
           "401": {
-            "description": "Missing/invalid access token or inactive/unknown Project",
+            "description": "UNAUTHENTICATED: bearer отсутствует/некорректен, Auth отверг просроченную или отозванную сессию/заблокированный аккаунт, либо Project неактивен.",
             "content": {
               "application/json": {
                 "schema": {
@@ -688,7 +688,7 @@
             }
           },
           "503": {
-            "description": "Database or lifecycle unavailable",
+            "description": "DEPENDENCY_UNAVAILABLE: недоступны Auth/БД/Redis или ответ Auth некорректен. Доступ не предоставляется, положительный кеш/fallback отсутствуют; клиент не должен удалять действующий токен из-за временного 503.",
             "content": {
               "application/json": {
                 "schema": {
@@ -940,7 +940,7 @@
             }
           },
           "401": {
-            "description": "Missing/invalid access token or inactive/unknown Project",
+            "description": "UNAUTHENTICATED: bearer отсутствует/некорректен, Auth отверг просроченную или отозванную сессию/заблокированный аккаунт, либо Project неактивен.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1023,7 +1023,7 @@
             }
           },
           "503": {
-            "description": "Database or lifecycle unavailable",
+            "description": "DEPENDENCY_UNAVAILABLE: недоступны Auth/БД/Redis или ответ Auth некорректен. Доступ не предоставляется, положительный кеш/fallback отсутствуют; клиент не должен удалять действующий токен из-за временного 503.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1281,7 +1281,7 @@
             }
           },
           "401": {
-            "description": "Missing/invalid access token or inactive/unknown Project",
+            "description": "UNAUTHENTICATED: bearer отсутствует/некорректен, Auth отверг просроченную или отозванную сессию/заблокированный аккаунт, либо Project неактивен.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1364,7 +1364,7 @@
             }
           },
           "503": {
-            "description": "Database or lifecycle unavailable",
+            "description": "DEPENDENCY_UNAVAILABLE: недоступны Auth/БД/Redis или ответ Auth некорректен. Доступ не предоставляется, положительный кеш/fallback отсутствуют; клиент не должен удалять действующий токен из-за временного 503.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1411,7 +1411,7 @@
             }
           },
           "401": {
-            "description": "Missing/invalid access token or inactive/unknown Project",
+            "description": "UNAUTHENTICATED: bearer отсутствует/некорректен, Auth отверг просроченную или отозванную сессию/заблокированный аккаунт, либо Project неактивен.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1494,7 +1494,7 @@
             }
           },
           "503": {
-            "description": "Database or lifecycle unavailable",
+            "description": "DEPENDENCY_UNAVAILABLE: недоступны Auth/БД/Redis или ответ Auth некорректен. Доступ не предоставляется, положительный кеш/fallback отсутствуют; клиент не должен удалять действующий токен из-за временного 503.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1757,7 +1757,7 @@
             }
           },
           "401": {
-            "description": "Missing/invalid access token or inactive/unknown Project",
+            "description": "UNAUTHENTICATED: bearer отсутствует/некорректен, Auth отверг просроченную или отозванную сессию/заблокированный аккаунт, либо Project неактивен.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1840,7 +1840,7 @@
             }
           },
           "503": {
-            "description": "Database or lifecycle unavailable",
+            "description": "DEPENDENCY_UNAVAILABLE: недоступны Auth/БД/Redis или ответ Auth некорректен. Доступ не предоставляется, положительный кеш/fallback отсутствуют; клиент не должен удалять действующий токен из-за временного 503.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1887,7 +1887,7 @@
             }
           },
           "401": {
-            "description": "Missing/invalid access token or inactive/unknown Project",
+            "description": "UNAUTHENTICATED: bearer отсутствует/некорректен, Auth отверг просроченную или отозванную сессию/заблокированный аккаунт, либо Project неактивен.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1970,7 +1970,7 @@
             }
           },
           "503": {
-            "description": "Database or lifecycle unavailable",
+            "description": "DEPENDENCY_UNAVAILABLE: недоступны Auth/БД/Redis или ответ Auth некорректен. Доступ не предоставляется, положительный кеш/fallback отсутствуют; клиент не должен удалять действующий токен из-за временного 503.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2233,7 +2233,7 @@
             }
           },
           "401": {
-            "description": "Missing/invalid access token or inactive/unknown Project",
+            "description": "UNAUTHENTICATED: bearer отсутствует/некорректен, Auth отверг просроченную или отозванную сессию/заблокированный аккаунт, либо Project неактивен.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2316,7 +2316,7 @@
             }
           },
           "503": {
-            "description": "Database or lifecycle unavailable",
+            "description": "DEPENDENCY_UNAVAILABLE: недоступны Auth/БД/Redis или ответ Auth некорректен. Доступ не предоставляется, положительный кеш/fallback отсутствуют; клиент не должен удалять действующий токен из-за временного 503.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3544,11 +3544,13 @@
             ],
             "properties": {
               "external_user_id": {
-                "type": "string"
+                "type": "string",
+                "description": "Строковое представление подтверждённого числового ID пользователя Auth; не имя и не email."
               },
               "project_id": {
                 "type": "string",
-                "format": "uuid"
+                "format": "uuid",
+                "description": "Project из серверной конфигурации AUTH_PROJECT_ID (в remote); клиент его не выбирает."
               },
               "roles": {
                 "type": "array",
@@ -3558,7 +3560,10 @@
                     "user",
                     "admin"
                   ]
-                }
+                },
+                "description": "Текущая роль из chat.users.role: user либо admin. Изменение оператором действует со следующего запроса с прежним JWT. Не копируется из Auth/JWT. Moderator — будущая роль membership, не Project role.",
+                "minItems": 1,
+                "maxItems": 1
               }
             }
           }
@@ -3570,7 +3575,7 @@
           "kind": "human",
           "status": "offline",
           "last_seen_at": null,
-          "external_user_id": "alice",
+          "external_user_id": "42",
           "project_id": "00000000-0000-4000-8000-000000000001",
           "roles": [
             "user"
@@ -3963,7 +3968,7 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
-        "description": "External RS256 access JWT. Project comes exclusively from verified claims. Never pass tokens in URL."
+        "description": "Access JWT текущего Auth (HS256 с sid/jti). Введите только JWT без Bearer. Chat отправляет точный токен на настроенный Auth GET /api/v1/users/me при каждом запросе, проверяя активную сессию без кеша. Logout/refresh выполняются в Auth; refresh tokens не принимаются Chat. Project задаётся сервером, user/admin берутся только из Chat DB. Не передавайте токен в URL. Auth 401/403 -> Chat 401; сбой Auth -> Chat 503. dev-rsa — отдельный offline development/test режим, роли JWT также игнорируются."
       }
     }
   },
@@ -3975,11 +3980,11 @@
     },
     {
       "name": "Identity",
-      "description": "External JWT; all resources scoped to verified Project"
+      "description": "Идентичность через Auth; профили и роли scoped по настроенному Project и БД Chat."
     },
     {
       "name": "Administration",
-      "description": "Project admin JWT role required; banned actors are read-only"
+      "description": "Требуется локальная роль admin в Chat DB; banned actors read-only. Роль JWT/Auth не даёт полномочий."
     },
     {
       "name": "CORS",

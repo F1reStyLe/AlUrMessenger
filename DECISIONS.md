@@ -10,8 +10,8 @@
 | D01 | Чистый старт; один modular monolith, API/worker из одного Go module | Прямое указание пользователя. Старые API/schema не поддерживаются; Git и внешние данные сохраняются. Микросервисы не нужны для MVP |
 | D02 | net/http ServeMux, pgx/v5, goose, явный SQL | Минимум runtime-слоёв; Go router достаточен. Chi/sqlc возможны при конкретной пользе, ORM не добавляется. Driver остаётся в adapters |
 | D03 | Project — единственное имя tenancy; UUID идентификаторы | Scoped repository methods + composite FK. RLS пока не единственная защита и не обязательна; его добавление не заменит service permissions |
-| D04 | Внешний JWT: асимметричная подпись, local public key/JWKS через verifier | MVP RS256 allowlist; introspection позже. Проверять iss/aud/exp/sub/project_id; issuer binding хранится для Project. Не принимать произвольные jku/x5u URL |
-| D05 | Project provisioning — operator CLI; dev-token/seed только development | Не создавать публичный регистрационный/Auth Service. Global admin claim действует внутри своего Project, не даёт cross-project полномочий |
+| D04 | Внешний Auth подтверждает JWT/сессию онлайн; актуализировано D32 | Нет positive cache/fallback, Auth owns login/refresh/logout; RS256 остаётся только offline fixture |
+| D05 | Project и локальные роли — operator CLI; dev-token/seed только development | Новый профиль user; Auth admin/имя/первый вход не дают прав Chat, см. D32 |
 | D06 | DIRECT — одна пара разных users; GROUP — пишут участники; private CHANNEL — пишут moderators | Участники CHANNEL читают/реагируют/жалуются. Создатель GROUP/CHANNEL — moderator; нельзя снять последнего активного moderator без замены. Каналы не публичны |
 | D07 | Чтение полной сохранившейся истории для активного membership; выход отзывает доступ | Простая модель MVP. Group/channel ban запрещает записи в этом conversation; Project ban запрещает все доменные записи. Banned сохраняет ранее разрешённое read-only |
 | D08 | SENT после DB commit; DELIVERED по явному client ack; READ по user checkpoint | Запись в socket не доказывает получение. last_delivered_sequence/last_read_sequence монотонны и не выше текущего message_sequence; READ также повышает delivered |
@@ -34,9 +34,9 @@
 
 ### Identity и полномочия
 
-JWT `sub` — внешний ID, `project_id` — внутренний Project UUID. Разрешённый issuer/audience
-связан с Project при provisioning. Claim roles: `user`/`admin`; moderator хранится только в membership,
-а не принимается как право на все каналы из JWT. Произвольные claims не повышают права.
+В remote внешний ID берётся из подтверждённого ответа Auth, Project — из server config.
+`user`/`admin` хранится в Chat users.role; moderator относится только к будущему membership.
+Claims Auth/JWT не повышают права. D32 заменяет прежний источник ролей из D29.
 Bot — user actor с kind=bot; system — служебный actor. Обычный JWT не отправляет SYSTEM.
 Admin API явно выделяет просмотр/модерацию приватного контента и журналирует такой доступ.
 
@@ -174,6 +174,8 @@ ACL хоста. Используется [выдача Compose secrets отде�
 а не полный mount каталога с чужими credentials. Не выдаём такой development deployment за production.
 ## D29 — Foundation identity: RS256, trusted Project bindings, atomic provisioning
 
+Историческое решение 1.4: источник идентичности/ролей заменён D32 по уточнению пользователя.
+
 Принято в 1.4. Внешний Auth отвечает за `sub/project_id/roles`; Chat проверяет RS256,
 issuer/audience из operator-managed Project, exp/nbf/iat и token_use=access (skew 30s).
 Для MVP используется локальный RSA public key >=2048 bits; rotation через restart.
@@ -207,3 +209,34 @@ Docs публичные и только на API; их наличие не об�
 Проверки объединяют Go contract tests, полный OpenAPI validator и browser Try it out.
 В ходе contract review исправлены обязательный user_id для OPTIONS и PATCH null semantics.
 Public key проверяется до bind, чтение ограничено 16 KiB. Phase 2 не начинается автоматически.
+
+## D32 — Auth identity/session и локальные роли Chat (2026-08-30)
+
+По явному уточнению пользователя общий Auth не знает прав приложений. После исправления
+отзыва access JWT в Auth Chat принимает его JWT напрямую и проверяет через users/me
+каждый раз: нет положительного кеша, второго bearer или своих login/refresh/logout.
+Секрет HS256 остаётся в Auth. HTTPS в production, redirects/proxies отключены, timeout 2s,
+ограничены bearer/response; отказ Auth даёт 401, недоступность/некорректный ответ — 503.
+
+Из ответа Auth используется только ID. Роль user/admin хранится в users.role отдельно
+для каждого Project; runtime SQL не может менять колонку. Migration 4 даёт всем старым
+профилям user без догадок о прежнем admin JWT. user-role назначает существующему профилю
+явную роль с operator credentials; нет первого admin по входу или переноса Auth admin.
+Project/user lock order согласован с policy mutation, которая повторно проверяет роль
+перед записью. Следующий запрос видит смену прав без обновления токена. Moderator будет
+принадлежать membership, не global role. Новый dev seed admin получает роль в БД;
+повтор seed не отменяет понижение. Параметр dev-token --admin удалён.
+
+Текущий remote deployment обслуживает один операторский AUTH_PROJECT_ID и один Auth.
+Все SQL/права tenant-scoped; произвольный клиентский Project не принимается. Любой активный
+пользователь этого Auth получает обычный профиль: отдельного Project admission allowlist
+пока нет. Не менять источник Auth при сохранённых профилях: numeric IDs не имеют namespace
+поставщика. Multi-issuer/multi-Project routing требует отдельного контракта, не JWT ролей.
+Поля Project issuer/audience сохраняются для dev-rsa, в remote не участвуют в проверке.
+Offline dev-rsa допускается только development/test, никогда как fallback в production.
+
+Удалены только неопубликованные draft internal/session и migration 5, которые дублировали
+исправленный Auth. Схема Chat — 4. Отзыв не отменяет уже проверенный in-flight запрос.
+CLI назначения ролей требует операционного журнала оператора; HTTP audit пока фиксирует
+изменения settings, полноценный management API ролей относится к дальнейшей работе.
+Контракт и команды: [Identity](docs/IDENTITY.md), [OpenAPI](api/openapi/openapi.json).

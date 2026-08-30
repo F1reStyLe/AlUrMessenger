@@ -76,7 +76,7 @@ func Failure(w http.ResponseWriter, r *http.Request, err error) {
 	}
 }
 
-// Self добавляет внешний ID только к собственному профилю; roles не берутся из БД.
+// Self добавляет внешний ID и роли из Chat DB только к собственному профилю.
 type Self struct {
 	identity.User
 	ExternalUserID string   `json:"external_user_id"`

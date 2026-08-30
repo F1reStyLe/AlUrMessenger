@@ -62,10 +62,22 @@ func run(ctx context.Context, service config.Service, output io.Writer) (exitCod
 		logger.Error("admission configuration rejected")
 		return 1
 	}
-	var verifier *auth.RSA
+	var verifier auth.Verifier
 	if service == config.API {
-		// Validate the public key before binding or opening infrastructure connections.
-		verifier, err = auth.Load(os.Getenv("AUTH_PUBLIC_KEY_FILE"), nil)
+		// Remote identity validation is the normal mode. Offline RSA is an explicit
+		// development fixture only and cannot silently bypass session checks in production.
+		switch os.Getenv("AUTH_MODE") {
+		case "", "remote":
+			verifier, err = auth.NewRemote(os.Getenv("AUTH_BASE_URL"), os.Getenv("AUTH_PROJECT_ID"), cfg.Environment, nil)
+		case "dev-rsa":
+			if cfg.Environment == "development" || cfg.Environment == "test" {
+				verifier, err = auth.Load(os.Getenv("AUTH_PUBLIC_KEY_FILE"), nil)
+			} else {
+				err = auth.ErrUnauthenticated
+			}
+		default:
+			err = auth.ErrUnauthenticated
+		}
 		if err != nil {
 			logger.Error("authentication configuration rejected")
 			return 1
@@ -103,8 +115,16 @@ func run(ctx context.Context, service config.Service, output io.Writer) (exitCod
 	server := httpserver.New(cfg.HTTP, cfg.ShutdownTimeout, logger, clients.Check)
 	if service == config.API {
 		store := &repository.Store{DB: clients.Postgres}
-		identities := &identity.Service{Verifier: verifier.WithProjects(store), Store: store}
+		switch v := verifier.(type) {
+		case *auth.Remote:
+			verifier = v.WithProjects(store)
+		case *auth.RSA:
+			verifier = v.WithProjects(store)
+		}
+		identities := &identity.Service{Verifier: verifier, Store: store}
 		limiter := &admission.Limiter{Redis: clients.Redis, Config: securityConfig}
+		// Auth owns login/refresh/logout. Chat accepts its bearer token directly and
+		// resolves current permissions from its own DB after each identity check.
 		// Order: IP/CORS → JWT/provisioning → Project-user limit → permissions/use case.
 		protect := func(next http.Handler) http.Handler {
 			return limiter.Before(identityhttp.Authenticate(identities, limiter.After(next)))
