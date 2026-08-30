@@ -6,7 +6,7 @@ GET/PATCH `/api/v1/me`, GET `/api/v1/users`, GET `/api/v1/users/{user_id}`.
 Шаг 1.5 добавил GET/PATCH `/admin/v1/project`, GET/PATCH `/admin/v1/feature-flags`
 и GET `/admin/v1/audit-logs` (пока только cursor/limit); [policies](docs/POLICIES.md).
 Реализуемые endpoints сопровождаются machine-readable OpenAPI
-в `api/openapi/`; локальный Swagger UI на `/docs/api` запланирован на шаг 1.6 и пока отсутствует.
+в `api/openapi/`; локальный Swagger UI на `/docs/api` и JSON `/docs/api/openapi.json` реализованы в 1.6.
 Этот документ не означает готовность endpoint.
 WS использует те же application services и правила: [WEBSOCKET_PROTOCOL.md](WEBSOCKET_PROTOCOL.md).
 

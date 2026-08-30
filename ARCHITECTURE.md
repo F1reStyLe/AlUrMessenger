@@ -5,6 +5,8 @@ cmd/api/worker/migrate/minio-init, config/logging/httpserver, PostgreSQL/Redis/K
 Development Compose/Dockerfiles добавлены в 1.3; identity/auth/provisioning — в 1.4.
 HTTP identity transport → application interfaces → PostgreSQL repository; external JWT — RS256.
 В 1.5 добавлены policy application/repository/transport и Redis/CORS admission middleware.
+Foundation 1.6 завершён: Swagger UI/spec embedded, unit/integration/API acceptance.
+Phase 2 и последующие возможности ниже остаются архитектурным планом.
 Основание: [ТЗ](docs/REQUIREMENTS.md), [решения](DECISIONS.md), [план](IMPLEMENTATION_PLAN.md).
 Проект создаётся с нуля; совместимость с удалённым прототипом не требуется.
 

@@ -110,7 +110,7 @@ func Register(server *httpserver.Server, service *identity.Service, wrap func(ht
 		u := a.User
 		if r.Method == "PATCH" {
 			var patch identity.ProfilePatch
-			if !httpserver.ReadJSON(w, r, &patch) {
+			if !httpserver.ReadPatchJSON(w, r, &patch) {
 				return
 			}
 			if patch.Validate() != nil {

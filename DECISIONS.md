@@ -198,3 +198,12 @@ Rate limits — atomic Redis fixed 60s window, fail closed 503; IP до JWT, Pro
 Default 120/IP и 60/user, настройки bounded. Proxy headers пока не trusted: за proxy
 IP quota общая, production должен отдельно определить trusted-proxy policy.
 CORS exact origins, HTTPS в production, no cookies; OPTIONS без JWT, но с IP quota.
+## D31 — Embedded Swagger and Foundation acceptance
+
+Принято в 1.6. OpenAPI 3.1 и Swagger UI 5.32.14 встроены в API binary, assets vendored
+из официального npm с проверкой SHA-512 и upstream licenses. Нет runtime CDN/Node/validator;
+spec URL фиксирован, query overrides и persistAuthorization выключены, CSP scripts/connect self.
+Docs публичные и только на API; их наличие не обходит JWT защищённых маршрутов.
+Проверки объединяют Go contract tests, полный OpenAPI validator и browser Try it out.
+В ходе contract review исправлены обязательный user_id для OPTIONS и PATCH null semantics.
+Public key проверяется до bind, чтение ограничено 16 KiB. Phase 2 не начинается автоматически.

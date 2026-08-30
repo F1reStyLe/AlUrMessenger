@@ -2,7 +2,7 @@
 
 Compose предназначен только для разработки. Он не настраивает production TLS/HA и использует
 legacy MinIO Community, риск поддержки которого описан в [INFRASTRUCTURE.md](INFRASTRUCTURE.md).
-PostgreSQL, Redis, Kafka и MinIO не публикуют порты на хост; доступны только API/worker probes.
+PostgreSQL, Redis, Kafka и MinIO не публикуют порты на хост; доступны API и worker probes.
 
 ## Первый запуск
 
@@ -12,6 +12,7 @@ PostgreSQL, Redis, Kafka и MinIO не публикуют порты на хос
 $env:APP_ENV = 'development'
 go run ./cmd/dev-init
 docker compose up -d --build --wait --wait-timeout 180
+docker compose run --rm --build seed
 curl.exe http://127.0.0.1:8080/health/ready
 ```
 
@@ -19,7 +20,7 @@ Linux/macOS: `APP_ENV=development go run ./cmd/dev-init`, затем та же �
 При конфликте портов задайте CHAT_API_PORT/CHAT_WORKER_PORT (по умолчанию 8080/8081).
 Имя проекта при необходимости задаётся `docker compose -p <name>`; используйте его последовательно.
 
-`dev-init` создаёт случайные пароли и derived connection URLs в ignored `.local/`.
+`dev-init` создаёт случайные пароли, RSA dev key pair и derived connection URLs в ignored `.local/`.
 Он отказывается работать вне development, не ротирует существующие secrets и не трогает БД.
 Каталог имеет mode 0700, файлы 0444 для non-root Docker secret mounts; в Windows доступ к каталогу
 дополнительно ограничивается ACL ОС. Не размещайте секреты в общедоступном каталоге.
@@ -29,7 +30,7 @@ Compose выполняет отдельные одноразовые jobs: migra
 Kafka-init назначает корневой каталог нового volume uid 1000 без рекурсивного chown;
 сам broker не запускается от root.
 API/worker стартуют после них и после healthy dependencies. Runtime получает только свои secrets;
-PostgreSQL DDL credentials и MinIO root credentials доступны только соответствующим init jobs.
+PostgreSQL DDL credentials доступны migrate/operator seed, MinIO root — только init jobs.
 API/worker images — multi-stage Go build + distroless, uid/gid 65532, read-only root filesystem,
 без capabilities, shell и package manager. Docker context исключает secrets, build и Agents.md.
 
@@ -50,5 +51,5 @@ volumes: новые credentials не совпадут с инициализир�
 Ожидаемые завершённые jobs отображаются как Exited (0), API/worker — healthy.
 SIGTERM инициирует HTTP drain и cleanup; Compose предоставляет 25 секунд до принудительной остановки.
 Readiness пока подтверждает инфраструктуру; готовность полного чата зависит от следующих фаз.
-# Identity/seed: после запуска core выполните `docker compose run --rm --build seed`.
-# JWT выдаётся локальной dev-only командой; см. [IDENTITY.md](IDENTITY.md).
+JWT выдаётся локальной dev-only командой; см. [IDENTITY.md](IDENTITY.md).
+Swagger UI находится на API `/docs/api`, без Node/CDN dependency при запуске.

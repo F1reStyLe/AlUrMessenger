@@ -23,7 +23,7 @@ Runtime не может создавать Project или менять его au
 Для локального Compose после `dev-init` и `up -d --build`:
 
 ```powershell
-docker compose -p alur-dev run --rm --build seed
+docker compose run --rm --build seed
 $env:APP_ENV = 'development'
 $token = (go run ./cmd/dev-token --subject alice).Trim()
 Invoke-RestMethod http://127.0.0.1:8080/api/v1/me -Headers @{Authorization="Bearer $token"}
@@ -45,7 +45,7 @@ avatar URL — HTTPS без userinfo, не скачивается серверо
 Presence пока не работает: status=offline, last_seen_at=null до соответствующей фазы.
 Пагинация UUID keyset: limit=1..100 (default 50), opaque next_cursor или null.
 
-Контракт с DTO/ошибками: [OpenAPI](../api/openapi/openapi.json). Swagger UI — шаг 1.6.
+Контракт с DTO/ошибками: [OpenAPI](../api/openapi/openapi.json). Swagger UI: `/docs/api` (API).
 Unit security matrix и real PostgreSQL tests входят в `scripts/test-infrastructure.ps1`:
 конкурентный provisioning, межпроектная изоляция, actor injection, profile persistence,
 ошибки JWT без создания строк и read-only ban. Production Auth/TLS интеграция отдельно.

@@ -38,11 +38,12 @@ PostgreSQL/Redis/Kafka/MinIO с временными данными, никог�
 
 Шаги 1.1–1.2 реализованы: bootstrap/API/worker, config/logging/HTTP lifecycle, infrastructure
 adapters, отдельные migrate/minio-init commands и unit/integration tests.
-Выполненные runtime проверки фиксируются в README/локальном журнале; вся Phase 1 ещё не завершена.
+Выполненные runtime проверки фиксируются в README, docs/FOUNDATION и локальном журнале.
 Шаг 1.3 добавляет development Compose/Dockerfiles/dev-init с постоянными volumes и отдельными jobs.
 Шаг 1.4 выполнен: Project/User/JWT/профили/provisioning/seed, unit + repository security tests.
 Шаг 1.5 выполнен: Project flags/settings, admin permissions, Redis limits, CORS и append-only audit.
-Следующий шаг — 1.6. Реализованные endpoints описаны в OpenAPI; test fixture Compose
+Шаг 1.6 выполнен: embedded Swagger UI, OpenAPI validation, unit/repository/HTTP acceptance.
+Foundation завершён; следующий шаг — Phase 2. Реализованные endpoints описаны в OpenAPI; test fixture Compose
 находится в test/integration. Readiness возвращает 200 только при доступных четырёх зависимостях
 и ожидаемой schema. Текущие probes описаны в `api/openapi/openapi.json`.
 

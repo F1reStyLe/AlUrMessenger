@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"errors"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -56,7 +57,12 @@ type RSA struct {
 // Load читает только public PEM при startup. Небольшой лимит предотвращает чтение
 // случайного большого файла; ключ короче 2048 бит не принимается.
 func Load(path string, projects Resolver) (*RSA, error) {
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, errors.New("AUTH_PUBLIC_KEY_INVALID")
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, 16385))
 	if err != nil || len(data) > 16384 {
 		return nil, errors.New("AUTH_PUBLIC_KEY_INVALID")
 	}
@@ -72,11 +78,15 @@ func New(pem []byte, projects Resolver) (*RSA, error) {
 	return &RSA{key: key, projects: projects}, nil
 }
 
+// WithProjects returns an immutable verifier copy after the public key has been
+// validated before bind. No mutable trust configuration is shared with requests.
+func (v *RSA) WithProjects(projects Resolver) *RSA { return &RSA{key: v.key, projects: projects} }
+
 // Verify сначала извлекает только Project ID для trusted lookup, затем повторно
 // разбирает JWT с проверкой подписи, RS256, iss/aud/exp/nbf/iat и token purpose.
 // Ошибки разбора не логируются и никогда не превращаются в anonymous actor.
 func (v *RSA) Verify(ctx context.Context, raw string) (Identity, error) {
-	if len(raw) == 0 || len(raw) > 8192 {
+	if v.projects == nil || len(raw) == 0 || len(raw) > 8192 {
 		return Identity{}, ErrUnauthenticated
 	}
 	var hint Claims

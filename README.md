@@ -4,11 +4,12 @@
 MinIO, REST, WebSocket и внутренний gRPC. Frontend — простые Admin и Demo на Vue 3/TypeScript/Vite.
 
 Проект начат заново по решению пользователя. Предыдущая реализация удалена; Git history сохранена.
-Phase 0 завершена; реализованы **шаги 1.1–1.5 Foundation**: API/worker, конфигурация,
+Phase 0 и **Phase 1 — Foundation (1.1–1.6)** завершены: API/worker, конфигурация,
 логи, HTTP lifecycle, PostgreSQL/Redis/Kafka/MinIO adapters и отдельные команды миграций/init.
 Добавлены development Compose, Project/User, внешний JWT verifier, профили и dev seed/token.
 Чата, jobs и frontend пока нет. [Identity API и запуск seed](docs/IDENTITY.md).
 Добавлены [Project policies, CORS, Redis limits и audit](docs/POLICIES.md).
+Swagger UI доступен на `/docs/api`, спецификация — `/docs/api/openapi.json`.
 Readiness подтверждает готовность инфраструктуры, а не всего Chat API.
 
 ## Локальный запуск
@@ -19,9 +20,16 @@ Readiness подтверждает готовность инфраструкту
 $env:APP_ENV = 'development'
 go run ./cmd/dev-init
 docker compose up -d --build --wait --wait-timeout 180
+docker compose run --rm --build seed
+$token = (go run ./cmd/dev-token --subject alice).Trim()
+Invoke-RestMethod http://127.0.0.1:8080/api/v1/me -Headers @{Authorization="Bearer $token"}
 ```
 
 Секреты в `.local/` и данные volumes сохраняются при повторных запусках. Это не production deployment.
+Откройте [Swagger UI](http://127.0.0.1:8080/docs/api). Authorize принимает JWT без префикса Bearer.
+Dev admin: `go run ./cmd/dev-token --subject admin --admin` (сохраните вывод в переменную,
+не в logs). Dev-token/seed требуют APP_ENV=development. Token живёт 15 минут, private key
+не передаётся API. Подробности: [Identity](docs/IDENTITY.md).
 
 Toolchain закреплён на Go 1.27.0. Установленный Go с `GOTOOLCHAIN=auto` загрузит его по go.mod;
 при отключённой автоматической загрузке установите нужный toolchain отдельно.
@@ -44,6 +52,7 @@ PowerShell, из корня репозитория, в первом термин
 
 ```powershell
 $env:APP_ENV = 'development'
+$env:AUTH_PUBLIC_KEY_FILE = '.local/jwt-public.pem'
 go run ./cmd/api
 ```
 
@@ -70,8 +79,9 @@ Redis, Kafka и private MinIO; иначе `503` с кодом `DEPENDENCY_UNAVAI
 Неизвестные routes → JSON 404, недопустимый метод probe → JSON 405. Поддерживаются GET/HEAD.
 Каждый ответ middleware содержит X-Request-ID; безопасный ID также есть в error envelope и structured log.
 Ошибки HTTP-парсера/лимита headers до middleware могут не иметь этих headers и JSON envelope.
-Текущий [OpenAPI JSON](api/openapi/openapi.json) описывает только реально доступные probes;
-Identity API описан в [OpenAPI](api/openapi/openapi.json); Swagger UI добавляется в 1.6.
+Текущий [OpenAPI JSON](api/openapi/openapi.json) описывает probes, Identity, settings/flags,
+audit, CORS и docs. Swagger UI/JS/CSS встроены в binary; CDN/внешний validator не используются.
+Worker обслуживает только probes. В Swagger нет endpoints будущего чата.
 
 ## Конфигурация и остановка
 
@@ -91,12 +101,15 @@ development/test/production. Неверные/пустые заданные зн
 | HTTP_IDLE_TIMEOUT | 60s |
 | HTTP_MAX_HEADER_BYTES | 32768; 1024–1048576 |
 | HTTP_MAX_BODY_BYTES | 1048576; 1–16777216, включая chunked JSON requests |
+| AUTH_PUBLIC_KEY_FILE | Обязательный RSA public PEM >=2048 bits для API; проверяется до bind |
+| CORS_ALLOWED_ORIGINS | Exact origins через запятую; пусто — cross-origin запрещён; production HTTPS |
+| RATE_IP_PER_MINUTE / RATE_USER_PER_MINUTE | 120 / 60; каждое 1..100000; Redis fixed 60s window |
 
 Указанные application duration settings ограничены 1ms–10m. Production bootstrap допускает
 только loopback HTTP и JSON logs: TLS/authentication deployment ещё не реализован.
 Настройки POSTGRES/REDIS/KAFKA/MINIO, INFRA_TIMEOUT и secret files описаны в
-[инфраструктурной инструкции](docs/INFRASTRUCTURE.md). JWT/ENCRYPTION/CORS/RATE_LIMIT/
-UPLOAD/RETENTION/WEBHOOK config вводится вместе с соответствующими компонентами.
+[инфраструктурной инструкции](docs/INFRASTRUCTURE.md). JWT и policy settings —
+[Identity](docs/IDENTITY.md)/[Policies](docs/POLICIES.md). Encryption/webhooks вводятся позже.
 
 Ctrl+C/SIGTERM запускает drain: readiness снимается, новые соединения/запросы не принимаются,
 текущие HTTP handlers получают время завершиться. По deadline contexts отменяются, connections
@@ -129,6 +142,21 @@ loopback listener, включая drain и принудительную оста
 
 Infrastructure suite дополнительно проверяет concurrent/idempotent migrations, запрет DDL runtime,
 Redis TTL, Kafka produce/consume, приватность S3, сбой и восстановление каждой зависимости.
+Также проверяются JWT/tenant isolation, concurrent provisioning, profile injection/ban,
+admin permissions, policy version conflicts, audit rollback/append-only grants, CORS и Redis quotas.
+Fixture временный и изолированный; существующие development volumes не удаляются.
+
+Полная валидация OpenAPI 3.1 (опциональный Python tooling, не runtime dependency):
+
+```powershell
+python -m venv build/openapi-validation
+./build/openapi-validation/Scripts/python.exe -m pip install openapi-spec-validator==0.9.0
+./build/openapi-validation/Scripts/python.exe -m openapi_spec_validator api/openapi/openapi.json
+```
+
+В Linux/macOS используйте `build/openapi-validation/bin/python`. Проверки `$ref`, operation IDs,
+path parameters, auth declarations и docs assets также входят в обычный `go test ./...`.
+Результаты и границы приёмки: [FOUNDATION.md](docs/FOUNDATION.md).
 
 ## Документы
 
@@ -136,6 +164,9 @@ Redis TTL, Kafka produce/consume, приватность S3, сбой и вос�
 | --- | --- |
 | [Исходное ТЗ](docs/REQUIREMENTS.md) | Полный перечень требований и acceptance criteria |
 | [Инфраструктура 1.2](docs/INFRASTRUCTURE.md) | Секреты, миграции, readiness, fixture и ограничения MinIO |
+| [Foundation acceptance](docs/FOUNDATION.md) | Проверки завершённой Phase 1 и ограничения перед Phase 2 |
+| [Development](docs/DEVELOPMENT.md) | Compose, секреты, постоянные volumes, startup/upgrade |
+| [Identity](docs/IDENTITY.md) / [Policies](docs/POLICIES.md) | Реализованный API, JWT/seed, права, CORS/limits/audit |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Modular monolith, модули, API/worker, потоки и масштабирование |
 | [DECISIONS.md](DECISIONS.md) | Принятые решения и компромиссы |
 | [DB_SCHEMA.md](DB_SCHEMA.md) | Таблицы, tenant constraints, sequence, outbox и cleanup |
@@ -159,12 +190,12 @@ Redis TTL, Kafka produce/consume, приватность S3, сбой и вос�
 
 ## Следующий этап
 
-Следующий шаг **1.6**: Swagger UI и приёмочные проверки Foundation.
-Foundation целиком пока не завершена.
+Следующий этап **Phase 2 — Conversations**. В текущей работе он не начат.
 
 Целевой локальный процесс — clone → development configuration/secret initialization →
 `docker compose up --build`. Полный набор служб: postgres, redis, kafka, minio, minio-init,
-chat-api, chat-worker, admin-web, demo-web. Production secrets и TLS не берутся из dev defaults.
+chat-api, chat-worker. Admin-web/demo-web вводятся с реальной реализацией в Phase 9.
+Production secrets и TLS не берутся из dev defaults.
 Существующие внешние БД и volumes не удаляются автоматически.
 
 ## Правила работы

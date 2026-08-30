@@ -55,6 +55,17 @@ func WriteJSON(w http.ResponseWriter, r *http.Request, status int, value any) {
 // destination должен быть указателем на DTO. false означает, что ошибка уже записана:
 // вызывающий handler обязан сразу завершиться, не выполняя бизнес-операцию.
 func ReadJSON(w http.ResponseWriter, r *http.Request, destination any) bool {
+	return readJSON(w, r, destination, false)
+}
+
+// ReadPatchJSON distinguishes omitted properties from explicit null. Current patch
+// contracts use empty strings to clear values and reject null, matching OpenAPI.
+func ReadPatchJSON(w http.ResponseWriter, r *http.Request, destination any) bool {
+	return readJSON(w, r, destination, true)
+}
+
+// readJSON shares media/size/shape validation; only patch DTOs reject top-level null values.
+func readJSON(w http.ResponseWriter, r *http.Request, destination any, rejectNull bool) bool {
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
 		WriteError(w, r, http.StatusUnsupportedMediaType, "UNSUPPORTED_MEDIA", "Content-Type must be application/json")
@@ -84,6 +95,19 @@ func ReadJSON(w http.ResponseWriter, r *http.Request, destination any) bool {
 		return false
 	}
 	strict := json.NewDecoder(bytes.NewReader(raw))
+	if rejectNull {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(raw, &fields) != nil {
+			WriteError(w, r, 400, "INVALID_REQUEST", "Invalid JSON object")
+			return false
+		}
+		for _, value := range fields {
+			if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+				WriteError(w, r, 400, "INVALID_REQUEST", "Patch fields cannot be null")
+				return false
+			}
+		}
+	}
 	strict.DisallowUnknownFields()
 	if err := strict.Decode(destination); err != nil {
 		writeDecodeError(w, r, err)

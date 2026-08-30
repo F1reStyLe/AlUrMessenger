@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Universal Chat Service",
-    "version": "0.5.0",
-    "description": "Foundation 1.4: infrastructure probes and Project-scoped identity API. JWT RS256: trusted Project issuer/audience, exp, sub, project_id, roles user/admin, token_use=access; 30s clock skew. First valid request atomically provisions a profile. Worker serves probes only. All responses use X-Request-ID and no-store. Swagger UI is scheduled for 1.6. Parser errors before application middleware may not use JSON envelopes. Foundation 1.5: admin Project settings/flags, append-only audit, exact CORS and shared Redis IP/user fixed-window limits. Default 120 requests/IP/minute and 60 requests/Project-user/minute, configurable. Rate-limiter failures return 503; trusted proxy headers are not configured."
+    "version": "0.6.0",
+    "description": "Реализованный Foundation: infrastructure probes, внешний RS256 access JWT, Project-scoped профили, admin settings/feature flags и append-only audit. Project берётся из проверенного JWT; roles user/admin, обязательные iss/aud/exp/sub/project_id/token_use=access, clock skew 30s. Swagger UI на /docs/api, все ресурсы локальные. Worker предоставляет только probes. Сообщения/conversations/WS/jobs ещё не реализованы. По умолчанию Redis limits: 120/IP и 60/Project-user за 60s с первого запроса; fail closed 503. CORS — exact allowlist, без cookies. Все application responses содержат X-Request-ID, no-store и nosniff; ошибки net/http до middleware могут иметь иной формат."
   },
   "servers": [
     {
@@ -554,6 +554,29 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid profile, UUID, or pagination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "Invalid profile, UUID, or pagination",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           }
         }
       }
@@ -866,6 +889,29 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid profile, UUID, or pagination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "Invalid profile, UUID, or pagination",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           }
         }
       }
@@ -1033,22 +1079,20 @@
           "403": {
             "$ref": "#/components/responses/PolicyForbidden"
           }
-        },
-        "parameters": [
-          {
-            "in": "path",
-            "name": "user_id",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ]
+        }
       },
       "parameters": [
         {
           "$ref": "#/components/parameters/RequestID"
+        },
+        {
+          "in": "path",
+          "name": "user_id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
         }
       ],
       "options": {
@@ -1186,6 +1230,29 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid profile, UUID, or pagination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "Invalid profile, UUID, or pagination",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           }
         }
       }
@@ -1639,6 +1706,29 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid profile, UUID, or pagination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "Invalid profile, UUID, or pagination",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           }
         }
       }
@@ -2092,6 +2182,29 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid profile, UUID, or pagination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "Invalid profile, UUID, or pagination",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           }
         }
       }
@@ -2405,9 +2518,501 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid profile, UUID, or pagination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "Invalid profile, UUID, or pagination",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           }
         }
       }
+    },
+    "/docs/api": {
+      "get": {
+        "tags": [
+          "Documentation"
+        ],
+        "operationId": "getDoc_docs_api",
+        "summary": "Swagger UI",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Swagger UI",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "head": {
+        "tags": [
+          "Documentation"
+        ],
+        "operationId": "headDoc_docs_api",
+        "summary": "Swagger UI",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Swagger UI; no body"
+          },
+          "405": {
+            "description": "HTTP 405, same semantics as GET; no response body"
+          },
+          "413": {
+            "description": "HTTP 413, same semantics as GET; no response body"
+          },
+          "500": {
+            "description": "HTTP 500, same semantics as GET; no response body"
+          },
+          "503": {
+            "description": "HTTP 503, same semantics as GET; no response body"
+          }
+        }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/RequestID"
+        }
+      ]
+    },
+    "/docs/api/": {
+      "get": {
+        "tags": [
+          "Documentation"
+        ],
+        "operationId": "getDoc_docs_api_",
+        "summary": "Swagger UI trailing slash alias",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Swagger UI trailing slash alias",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "head": {
+        "tags": [
+          "Documentation"
+        ],
+        "operationId": "headDoc_docs_api_",
+        "summary": "Swagger UI trailing slash alias",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Swagger UI trailing slash alias; no body"
+          },
+          "405": {
+            "description": "HTTP 405, same semantics as GET; no response body"
+          },
+          "413": {
+            "description": "HTTP 413, same semantics as GET; no response body"
+          },
+          "500": {
+            "description": "HTTP 500, same semantics as GET; no response body"
+          },
+          "503": {
+            "description": "HTTP 503, same semantics as GET; no response body"
+          }
+        }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/RequestID"
+        }
+      ]
+    },
+    "/docs/api/openapi.json": {
+      "get": {
+        "tags": [
+          "Documentation"
+        ],
+        "operationId": "getDoc_docs_api_openapi_json",
+        "summary": "OpenAPI document",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OpenAPI document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "head": {
+        "tags": [
+          "Documentation"
+        ],
+        "operationId": "headDoc_docs_api_openapi_json",
+        "summary": "OpenAPI document",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OpenAPI document; no body"
+          },
+          "405": {
+            "description": "HTTP 405, same semantics as GET; no response body"
+          },
+          "413": {
+            "description": "HTTP 413, same semantics as GET; no response body"
+          },
+          "500": {
+            "description": "HTTP 500, same semantics as GET; no response body"
+          },
+          "503": {
+            "description": "HTTP 503, same semantics as GET; no response body"
+          }
+        }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/RequestID"
+        }
+      ]
+    },
+    "/docs/api/swagger-ui-bundle.js": {
+      "get": {
+        "tags": [
+          "Documentation"
+        ],
+        "operationId": "getDoc_docs_api_swagger-ui-bundle_js",
+        "summary": "Pinned Swagger bundle",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Pinned Swagger bundle",
+            "content": {
+              "text/javascript": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "head": {
+        "tags": [
+          "Documentation"
+        ],
+        "operationId": "headDoc_docs_api_swagger-ui-bundle_js",
+        "summary": "Pinned Swagger bundle",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Pinned Swagger bundle; no body"
+          },
+          "405": {
+            "description": "HTTP 405, same semantics as GET; no response body"
+          },
+          "413": {
+            "description": "HTTP 413, same semantics as GET; no response body"
+          },
+          "500": {
+            "description": "HTTP 500, same semantics as GET; no response body"
+          },
+          "503": {
+            "description": "HTTP 503, same semantics as GET; no response body"
+          }
+        }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/RequestID"
+        }
+      ]
+    },
+    "/docs/api/initializer.js": {
+      "get": {
+        "tags": [
+          "Documentation"
+        ],
+        "operationId": "getDoc_docs_api_initializer_js",
+        "summary": "Local Swagger initializer",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Local Swagger initializer",
+            "content": {
+              "text/javascript": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "head": {
+        "tags": [
+          "Documentation"
+        ],
+        "operationId": "headDoc_docs_api_initializer_js",
+        "summary": "Local Swagger initializer",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Local Swagger initializer; no body"
+          },
+          "405": {
+            "description": "HTTP 405, same semantics as GET; no response body"
+          },
+          "413": {
+            "description": "HTTP 413, same semantics as GET; no response body"
+          },
+          "500": {
+            "description": "HTTP 500, same semantics as GET; no response body"
+          },
+          "503": {
+            "description": "HTTP 503, same semantics as GET; no response body"
+          }
+        }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/RequestID"
+        }
+      ]
+    },
+    "/docs/api/swagger-ui.css": {
+      "get": {
+        "tags": [
+          "Documentation"
+        ],
+        "operationId": "getDoc_docs_api_swagger-ui_css",
+        "summary": "Swagger stylesheet",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Swagger stylesheet",
+            "content": {
+              "text/css": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "head": {
+        "tags": [
+          "Documentation"
+        ],
+        "operationId": "headDoc_docs_api_swagger-ui_css",
+        "summary": "Swagger stylesheet",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Swagger stylesheet; no body"
+          },
+          "405": {
+            "description": "HTTP 405, same semantics as GET; no response body"
+          },
+          "413": {
+            "description": "HTTP 413, same semantics as GET; no response body"
+          },
+          "500": {
+            "description": "HTTP 500, same semantics as GET; no response body"
+          },
+          "503": {
+            "description": "HTTP 503, same semantics as GET; no response body"
+          }
+        }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/RequestID"
+        }
+      ]
     }
   },
   "components": {
@@ -2915,6 +3520,14 @@
             ],
             "format": "date-time"
           }
+        },
+        "example": {
+          "id": "63a33144-e2d5-4b93-b542-857cb7dff881",
+          "display_name": "Alice",
+          "avatar_url": "",
+          "kind": "human",
+          "status": "offline",
+          "last_seen_at": null
         }
       },
       "Self": {
@@ -2949,7 +3562,20 @@
               }
             }
           }
-        ]
+        ],
+        "example": {
+          "id": "63a33144-e2d5-4b93-b542-857cb7dff881",
+          "display_name": "Alice",
+          "avatar_url": "",
+          "kind": "human",
+          "status": "offline",
+          "last_seen_at": null,
+          "external_user_id": "alice",
+          "project_id": "00000000-0000-4000-8000-000000000001",
+          "roles": [
+            "user"
+          ]
+        }
       },
       "ProfilePatch": {
         "type": "object",
@@ -3345,7 +3971,23 @@
   "tags": [
     {
       "name": "Probes",
-      "description": "Проверки процесса без JWT/API key. Readiness подтверждает четыре инфраструктурные зависимости."
+      "description": "API/worker infrastructure health; no JWT required"
+    },
+    {
+      "name": "Identity",
+      "description": "External JWT; all resources scoped to verified Project"
+    },
+    {
+      "name": "Administration",
+      "description": "Project admin JWT role required; banned actors are read-only"
+    },
+    {
+      "name": "CORS",
+      "description": "Browser preflight; IP quota applies, no JWT required"
+    },
+    {
+      "name": "Documentation",
+      "description": "Locally embedded OpenAPI and Swagger UI; API process only"
     }
   ],
   "x-routing-errors": {

@@ -27,8 +27,19 @@ func testEnvironment(t *testing.T) {
 		"REDIS_URL": "redis://127.0.0.1:6379/0", "KAFKA_BROKERS": "127.0.0.1:9092", "KAFKA_SECURITY_PROTOCOL": "PLAINTEXT",
 		"MINIO_ENDPOINT": "http://127.0.0.1:9000", "MINIO_BUCKET": "chat-attachments", "MINIO_REGION": "us-east-1",
 		"MINIO_ACCESS_KEY": "unit-test", "MINIO_SECRET_KEY": "unit-test-secret", "INFRA_TIMEOUT": "1s",
+		"CORS_ALLOWED_ORIGINS": "", "RATE_IP_PER_MINUTE": "120", "RATE_USER_PER_MINUTE": "60",
 	} {
 		t.Setenv(key, value)
+	}
+}
+
+// TestAuthFailsBeforeInfrastructure verifies fail-fast without connecting to fake DB credentials.
+func TestAuthFailsBeforeInfrastructure(t *testing.T) {
+	testEnvironment(t)
+	t.Setenv("AUTH_PUBLIC_KEY_FILE", "not-a-key-secret-path")
+	var output bytes.Buffer
+	if run(t.Context(), config.API, &output) != 1 || !strings.Contains(output.String(), "authentication configuration rejected") || strings.Contains(output.String(), "not-a-key-secret-path") {
+		t.Fatal("auth startup failed unsafely")
 	}
 }
 

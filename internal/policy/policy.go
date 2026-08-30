@@ -111,6 +111,7 @@ type Store interface {
 // Service checks global role before storage access; repository rechecks inside mutations.
 type Service struct{ Store Store }
 
+// Get authorizes the global role before reading the current Project snapshot.
 func (s *Service) Get(ctx context.Context, a identity.Actor) (Settings, error) {
 	if !a.Admin {
 		return Settings{}, ErrForbidden

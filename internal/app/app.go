@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/admission"
+	"github.com/F1reStyLe/AlUrMessenger/internal/platform/apidocs"
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/config"
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/httpserver"
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/infrastructure"
@@ -61,6 +62,15 @@ func run(ctx context.Context, service config.Service, output io.Writer) (exitCod
 		logger.Error("admission configuration rejected")
 		return 1
 	}
+	var verifier *auth.RSA
+	if service == config.API {
+		// Validate the public key before binding or opening infrastructure connections.
+		verifier, err = auth.Load(os.Getenv("AUTH_PUBLIC_KEY_FILE"), nil)
+		if err != nil {
+			logger.Error("authentication configuration rejected")
+			return 1
+		}
+	}
 	listener, err := net.Listen("tcp", cfg.HTTP.Address)
 	if err != nil {
 		// Системная ошибка может содержать детали окружения; наружу идёт только код.
@@ -93,12 +103,7 @@ func run(ctx context.Context, service config.Service, output io.Writer) (exitCod
 	server := httpserver.New(cfg.HTTP, cfg.ShutdownTimeout, logger, clients.Check)
 	if service == config.API {
 		store := &repository.Store{DB: clients.Postgres}
-		verifier, err := auth.Load(os.Getenv("AUTH_PUBLIC_KEY_FILE"), store)
-		if err != nil {
-			logger.Error("authentication configuration rejected")
-			return 1
-		}
-		identities := &identity.Service{Verifier: verifier, Store: store}
+		identities := &identity.Service{Verifier: verifier.WithProjects(store), Store: store}
 		limiter := &admission.Limiter{Redis: clients.Redis, Config: securityConfig}
 		// Order: IP/CORS → JWT/provisioning → Project-user limit → permissions/use case.
 		protect := func(next http.Handler) http.Handler {
@@ -106,6 +111,7 @@ func run(ctx context.Context, service config.Service, output io.Writer) (exitCod
 		}
 		identityhttp.Register(server, identities, protect)
 		policyhttp.Register(server, &policy.Service{Store: &policyrepo.Store{DB: clients.Postgres}}, protect)
+		apidocs.Register(server)
 	}
 	logger.Info("service starting")
 	if err := server.Run(ctx, listener); err != nil {

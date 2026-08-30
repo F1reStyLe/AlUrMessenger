@@ -39,7 +39,7 @@ func Register(server *httpserver.Server, service *policy.Service, protect func(h
 				settings, err = service.Get(r.Context(), a)
 			} else {
 				var patch policy.Patch
-				if !httpserver.ReadJSON(w, r, &patch) {
+				if !httpserver.ReadPatchJSON(w, r, &patch) {
 					return
 				}
 				// Flags endpoint cannot mutate numeric settings through an alias.
