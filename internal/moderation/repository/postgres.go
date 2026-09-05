@@ -66,9 +66,9 @@ func audit(ctx context.Context, tx pgx.Tx, actor identity.Actor, action, resourc
 }
 
 func (s *Store) List(ctx context.Context, actor identity.Actor, after string, limit int) ([]moderation.Entry, error) {
-	var active, admin, banned bool
-	if err := s.DB.QueryRow(ctx, `SELECT p.status='active',u.role='admin',u.banned_at IS NOT NULL FROM chat.projects p
- JOIN chat.users u ON u.project_id=p.id WHERE p.id=$1 AND u.id=$2`, actor.ProjectID, actor.User.ID).Scan(&active, &admin, &banned); err != nil {
+	var active, admin bool
+	if err := s.DB.QueryRow(ctx, `SELECT p.status='active',u.role='admin' FROM chat.projects p
+	 JOIN chat.users u ON u.project_id=p.id WHERE p.id=$1 AND u.id=$2`, actor.ProjectID, actor.User.ID).Scan(&active, &admin); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, auth.ErrUnauthenticated
 		}
@@ -76,9 +76,6 @@ func (s *Store) List(ctx context.Context, actor identity.Actor, after string, li
 	}
 	if !active {
 		return nil, auth.ErrUnauthenticated
-	}
-	if banned {
-		return nil, identity.ErrBanned
 	}
 	if !admin {
 		return nil, policy.ErrForbidden

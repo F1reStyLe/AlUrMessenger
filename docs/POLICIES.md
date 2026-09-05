@@ -3,8 +3,9 @@
 Только пользователь с ролью admin в БД Chat может GET/PATCH `/admin/v1/project`,
 GET/PATCH `/admin/v1/feature-flags` и GET `/admin/v1/audit-logs` своего Project.
 Role user получает 403; moderator не является глобальной ролью. Banned admin может
-читать, но не писать. Operator пока управляет ban через БД; публичный ban API относится
-к последующей фазе moderation. Клиент не задаёт Project/actor в payload.
+читать, но не писать. С шага 7.3 Project admin управляет global ban через
+`PUT/DELETE /admin/v1/users/{id}/ban`; operator SQL для этого не требуется.
+Клиент не задаёт Project/actor в payload.
 JWT доказывает идентичность через Auth, но не назначает права. Роль читается при каждом
 запросе и повторно проверяется под lock при записи. Операторское назначение/понижение
 через user-role описано в [Identity](IDENTITY.md); перевыпуск JWT не нужен.

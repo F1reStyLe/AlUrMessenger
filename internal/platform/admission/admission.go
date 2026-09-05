@@ -156,6 +156,8 @@ func (l *Limiter) Before(next http.Handler) http.Handler {
 			reportCreate := len(segments) == 5 && segments[0] == "api" && segments[1] == "v1" && (segments[2] == "messages" || segments[2] == "users") && segments[4] == "reports"
 			reportReview := len(segments) == 4 && segments[0] == "admin" && segments[1] == "v1" && segments[2] == "reports"
 			allowed = allowed || (reportCreate && method == "POST") || (reportReview && method == "PATCH")
+			userBan := len(segments) == 5 && segments[0] == "admin" && segments[1] == "v1" && segments[2] == "users" && segments[4] == "ban"
+			allowed = allowed || (userBan && (method == "PUT" || method == "DELETE"))
 			for _, h := range strings.Split(r.Header.Get("Access-Control-Request-Headers"), ",") {
 				switch strings.ToLower(strings.TrimSpace(h)) {
 				case "", "authorization", "content-type", "x-request-id":

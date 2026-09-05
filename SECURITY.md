@@ -77,6 +77,12 @@ message target — live membership; review повторно проверяет �
 Запрет записи не мешает heartbeat, reconnect и ранее разрешённому чтению. Смена роли/moderation
 синхронизируется через общий transaction lock protocol, а не только через кеш.
 
+Global ban 7.3 меняет только tenant user ban envelope под Project/admin/target locks и повышает
+policy_version. Self/system target запрещены, reason не попадает в audit/event. Все реализованные
+domain writes повторно читают banned_at в своей transaction; race ban/write имеет линейный порядок.
+REST и уже активный WS actor могут читать прежнюю историю, но следующая write-команда получает
+USER_BANNED. Unban действует на следующий command без перевыпуска JWT или reconnect.
+
 ## Content encryption и поиск
 
 Message payload: AES-256-GCM, случайный уникальный nonce на encryption, 256-bit key из secret store.

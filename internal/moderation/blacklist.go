@@ -81,8 +81,9 @@ func admin(a identity.Actor) error {
 }
 
 func (s *Service) List(ctx context.Context, a identity.Actor, after string, limit int) ([]Entry, error) {
-	if err := admin(a); err != nil {
-		return nil, err
+	// Global bans are read-only rather than invisible; only mutations call admin.
+	if !a.Admin {
+		return nil, policy.ErrForbidden
 	}
 	if after != "" && uuid.Validate(after) != nil || limit < 1 || limit > 101 {
 		return nil, policy.ErrInvalid

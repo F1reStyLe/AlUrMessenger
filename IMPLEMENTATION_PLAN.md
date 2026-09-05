@@ -6,8 +6,8 @@ Commit/push — только по прямому требованию польз
 игнорируемом `Agents.md`; результаты фазы и инструкции запуска отражаются в versioned документации.
 
 Текущая реализация: Phase 0–6. Upload, IMAGE send/forward, current authorization, short download URL,
-recoverable cleanup и полный negative/failure audit реализованы. Blacklist 7.1 и reports 7.2 реализованы;
-следующий шаг — ban/unban 7.3. Остальная Phase 7–10 ещё не реализована.
+recoverable cleanup и полный negative/failure audit реализованы. Moderation 7.1–7.3 реализована;
+следующий шаг — полный audit 7.4. Остальная Phase 7–10 ещё не реализована.
 Контракты и ограничения: docs/CONVERSATIONS.md, docs/MESSAGES.md, docs/REALTIME.md.
 
 ## Порядок работы и Definition of Done
@@ -151,7 +151,8 @@ MinIO private; потеря worker/повтор cleanup не уничтожае�
 7.1 Project blacklist add/delete/enable/disable, normalized full-word reject; проверять все
 пути content write, включая edit/forward/bot/internal.
 7.2 **Реализовано:** reports на user/message, review workflow и безопасный DTO, encrypted description.
-7.3 Project ban/unban и conversation ban, read-only rules, moderator actions и race ban/send.
+7.3 **Реализовано:** Project ban/unban и существующий conversation ban, read-only rules,
+moderator/admin actions, active WS permission refresh и race ban/send.
 7.4 Полное audit coverage административных мутаций, permissions/cache invalidation.
 
 Приёмка: bans/flags/blacklist действуют в application service независимо от transport;

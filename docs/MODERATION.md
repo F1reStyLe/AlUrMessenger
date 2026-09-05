@@ -1,4 +1,4 @@
-# Moderation — реализованные шаги 7.1–7.2
+# Moderation — реализованные шаги 7.1–7.3
 
 Project admin управляет whole-word blacklist через `GET/POST /admin/v1/blacklist` и
 `PATCH/DELETE /admin/v1/blacklist/{id}`. Client не передаёт Project/actor. Word обязан быть ровно
@@ -30,3 +30,20 @@ Reporter читает свой безопасный DTO через `GET /api/v1/
 `OPEN → REVIEWING → RESOLVED|REJECTED`, требует `expected_version`; terminal state неизменяем.
 Каждый успешный review transition записывается в audit без description. Banned admin может читать,
 но не менять очередь. Kafka report events будут подключены к generic aggregate outbox при 8.5.
+
+Global Project ban задаётся `PUT /admin/v1/users/{id}/ban` с обязательными `reason` и
+`expected_version`; DELETE того же URL требует `expected_version` и снимает ban. Actor/Project
+берутся только из JWT context, self/system target запрещены, чужой target скрыт 404. Причина
+видна только в admin BanState и не копируется в audit/event. Repeat текущего состояния — no-op;
+stale version — 409. Миграция 16 разрешает runtime менять только banned_at/ban_reason/policy_version.
+
+Ban и каждое domain write используют общий Project→sorted user→conversation lock order. Поэтому
+конкурентная команда либо успевает полностью commit до ban, либо после lock видит USER_BANNED;
+частичной записи нет. Заблокированный user продолжает читать profile/conversation/history/message,
+attachments и собственные reports. Запрещены profile, conversation/membership, send/edit/delete,
+reaction/pin, read receipt, typing, upload, report и admin mutations. Banned admin сохраняет settings,
+audit, blacklist/report queue reads. Existing WebSocket остаётся подключённым в read-only режиме:
+следующая команда проверяет PostgreSQL, а unban восстанавливает write без reconnect.
+
+Conversation-level ban из Phase 2 остаётся отдельным moderator инструментом GROUP/CHANNEL и
+ограничивает writes только этого conversation; last-moderator guard сохраняется.

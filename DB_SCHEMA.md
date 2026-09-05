@@ -32,7 +32,7 @@ PostgreSQL — source of truth. [Текущая миграция](migrations/000
 | Таблица | Основные поля | Constraints / индексы |
 | --- | --- | --- |
 | projects | id, name, status, auth_issuer, auth_audience, policy_version, created_at, updated_at | PK id; issuer/audience из доверенного provisioning, не из запросов пользователя |
-| users | id, project_id, external_user_id nullable для bot/system, kind, role, display_name, avatar_url, status, last_seen_at, banned_at, ban_reason, policy_version, created_at, updated_at | UNIQUE(project_id,id); UNIQUE(project_id,external_user_id); human требует external_user_id; role user/admin, default user, operator-only mutation |
+| users | id, project_id, external_user_id nullable для bot/system, kind, role, display_name, avatar_url, status, last_seen_at, banned_at, ban_reason, policy_version, created_at, updated_at | UNIQUE tenant identity; role operator-only; schema 16 даёт runtime только ban envelope/version UPDATE, ban_reason остаётся admin-only DTO |
 | project_settings | project_id, flags JSONB, max_upload_size, message_retention_days, settings_version, updated_by, updated_at | PK project_id; typed validation и global bounds; defaults задокументированы в API_DESIGN |
 | api_keys | id, project_id, actor_type, actor_id, name, prefix, key_hash, scopes, created_at, last_used_at, expires_at, revoked_at | UNIQUE(key_hash); index(prefix); actor whitelist, expiry; hash не выдаётся API |
 | bots | id, project_id, user_id, name, enabled, metadata, created_at | UNIQUE(project_id,user_id); user.kind=bot проверяется service; credentials через api_keys |

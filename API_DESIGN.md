@@ -190,7 +190,7 @@ context, ключи серверного шифрования или глоба�
 | Группа | Endpoints / результат |
 | --- | --- |
 | Dashboard | GET `/admin/v1/dashboard` — агрегированные счётчики своего Project |
-| Users | GET `/admin/v1/users`, GET `/admin/v1/users/{id}`, PUT/DELETE `/admin/v1/users/{id}/ban` |
+| Users | GET `/admin/v1/users`, GET `/admin/v1/users/{id}` — будущая Admin выборка; **реализовано 7.3:** PUT/DELETE `/admin/v1/users/{id}/ban` с reason/expected_version |
 | Conversations | GET `/admin/v1/conversations`, GET `/admin/v1/conversations/{id}`, GET `/admin/v1/conversations/{id}/messages`; CHANNEL фильтруется type |
 | Moderation | DELETE `/admin/v1/messages/{id}` с reason; обычный moderator использует DELETE `/api/v1/conversations/{id}/moderation/messages/{message_id}` с reason |
 | Reports | **Реализовано 7.2:** GET `/admin/v1/reports`, GET/PATCH `/admin/v1/reports/{id}`; OPEN→REVIEWING→RESOLVED/REJECTED, optimistic version |

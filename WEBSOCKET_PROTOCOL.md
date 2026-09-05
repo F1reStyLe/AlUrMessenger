@@ -145,6 +145,9 @@ Bounded send queue: при переполнении сервер закрыва�
 Project ban сохраняет read-only, но запрещает domain write commands, включая read/delivered
 checkpoint и typing. Protocol pong/auth/reconnect и выдача download capability остаются допустимыми
 операциями чтения/поддержания соединения, не дают возможности изменить доменную модель.
+С шага 7.3 уже открытая session не доверяет cached Actor для write: application transaction читает
+global/conversation ban из PostgreSQL. Поэтому ban действует на следующую command, соединение
+остаётся read-only, а unban восстанавливает запись без JWT refresh/reconnect.
 
 Shutdown прекращает upgrades/commands, отправляет server.draining, даёт bounded срок текущим
 транзакциям и закрывает sockets 1001. После неопределённого исхода команда повторяется с тем же ID.

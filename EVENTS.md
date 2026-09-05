@@ -80,6 +80,8 @@ aggregate остаётся pending, ошибка видна в structured logs/�
 REST workflow reports реализован в 7.2, но текущий outbox физически conversation-scoped. Поэтому
 report rows и review audit уже durable, а Kafka `report.*` не имитируется частичной публикацией:
 generic aggregate outbox/event_streams вводится и проверяется вместе с contract freeze 8.5.
+То же относится к `user.banned/unbanned`: schema 16 и audit уже durable, active transports
+проверяют PostgreSQL напрямую, а non-conversation Kafka aggregate подключается в 8.5.
 
 Последние два presence события экспортируются только при включённых presence и соответствующих
 подписках. Redis edge observer создаёт outbox record; запись в Redis и PostgreSQL не является

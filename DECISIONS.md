@@ -479,3 +479,26 @@ State machine единственная: OPEN→REVIEWING→RESOLVED или REJEC
 Текущий outbox намеренно не расширен суррогатным conversation ID: он гарантирует порядок только
 conversation aggregates. `report.created/updated` остаются заявленным contract и будут подключены
 через generic aggregate outbox/event_streams при окончательной фиксации integration contracts 8.5.
+
+## D44 — Global ban как линейный read-only policy switch (шаг 7.3)
+
+Статус: принято. Admin PUT/DELETE изменяет banned_at/reason и optimistic user.policy_version внутри
+Project/admin/target lock transaction. Self-ban и system target запрещены; это не даёт случайно
+закрыть единственный действующий admin path и не смешивает system actor с пользовательской
+модерацией. Repeat уже достигнутого состояния с current version — no-op; reason не редактируется
+скрытым повтором, для нового reason требуется unban/re-ban.
+
+Ban reason остаётся admin-only plaintext metadata текущей схемы, но исключён из audit, event,
+логов и public identity DTO. Он не является message content и не индексируется. Audit хранит только
+changed field. Runtime grant ограничен banned_at/ban_reason/policy_version; role и identity columns
+по-прежнему operator-only.
+
+Read-only выбран согласно Phase 0: profile/conversation/history/message/attachment/report reads,
+heartbeat и WS subscription доступны. Все domain mutations повторно проверяют текущий ban в БД,
+включая cached Actor открытой WS session. Общий lock order делает race линейным: write либо commit
+до ban, либо видит USER_BANNED. Redis revoke не вводится, поскольку он был бы недолговечным и не
+атомарным; PostgreSQL check остаётся авторитетным. Unban действует на следующий command без reconnect.
+
+Conversation ban остаётся независимым moderator policy для одного GROUP/CHANNEL и использует
+тот же write gate/last-moderator guard. Non-conversation Kafka `user.banned/unbanned` не имитируется
+через conversation outbox и подключается generic aggregate contract в 8.5.

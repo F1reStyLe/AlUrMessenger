@@ -99,6 +99,7 @@ func testRealtime(t *testing.T, clients *infrastructure.Clients, op *pgx.Conn) {
 	if _, err = op.Exec(ctx, "UPDATE chat.users SET role='admin' WHERE project_id=$1 AND id=$2", project, a.User.ID); err != nil {
 		t.Fatal(err)
 	}
+	a.Admin, a.User.Role = true, "admin"
 	b, err := identities.Authenticate(ctx, bToken)
 	if err != nil {
 		t.Fatal(err)
@@ -122,6 +123,7 @@ func testRealtime(t *testing.T, clients *infrastructure.Clients, op *pgx.Conn) {
 	messages := &message.Service{Store: store}
 	recovery := &message.RecoveryService{Store: store}
 	presence := &realtime.Presence{DB: clients.Postgres, Redis: clients.Redis}
+	bans := &moderation.BanService{Store: &moderationrepo.Bans{DB: clients.Postgres}}
 	start := func() (string, *realtime.Hub) {
 		hub := realtime.NewHub()
 		limiter := &admission.Limiter{Redis: clients.Redis, Config: admission.Config{Origins: map[string]bool{"https://demo.test": true}, IPPerMinute: 10000, UserPerMinute: 10000}}
@@ -134,6 +136,7 @@ func testRealtime(t *testing.T, clients *infrastructure.Clients, op *pgx.Conn) {
 		messagehttp.RegisterRecovery(server, recovery, protect)
 		attachmenthttp.Register(server, attachment.New(&attachmentrepo.Store{DB: clients.Postgres}, clients.Storage, config.Upload{MaxBytes: 50 << 20, MaxDimension: 8192, MaxPixels: 16_000_000, DecodeConcurrency: 2}), protect)
 		moderationhttp.Register(server, &moderation.Service{Store: &moderationrepo.Store{DB: clients.Postgres}}, protect)
+		moderationhttp.RegisterBans(server, bans, protect)
 		listener, e := net.Listen("tcp", "127.0.0.1:0")
 		if e != nil {
 			t.Fatal(e)
@@ -610,6 +613,54 @@ func testRealtime(t *testing.T, clients *infrastructure.Clients, op *pgx.Conn) {
 	if err = presence.Typing(ctx, a, conv.ID, fake2, false); err != nil {
 		t.Fatal(err)
 	}
+	// A global ban applies to an already authenticated socket because each write
+	// rechecks PostgreSQL. The same connection keeps read-only subscriptions.
+	banURL := strings.TrimSuffix(strings.Replace(first, "ws://", "http://", 1), "/ws") + "/admin/v1/users/" + b.User.ID + "/ban"
+	banRequest, _ := http.NewRequestWithContext(ctx, "PUT", banURL, strings.NewReader(`{"reason":"fixture moderation","expected_version":"1"}`))
+	banRequest.Header.Set("Authorization", "Bearer "+aToken)
+	banRequest.Header.Set("Content-Type", "application/json")
+	banResponse, err := client.Do(banRequest)
+	if err != nil {
+		t.Fatal("ban route", err)
+	}
+	if banResponse.StatusCode != 200 {
+		t.Fatal("ban route status", banResponse.StatusCode)
+	}
+	var banState moderation.BanState
+	if err = json.NewDecoder(banResponse.Body).Decode(&banState); err != nil {
+		t.Fatal(err)
+	}
+	banResponse.Body.Close()
+	command(bob, "message.send", message.Send{ClientID: uuid.NewString(), Type: "TEXT", Content: message.Content{Text: "globally blocked"}})
+	banError := receive(bob, "error")
+	var banCode map[string]any
+	json.Unmarshal(banError.Payload, &banCode)
+	if banCode["code"] != "USER_BANNED" {
+		t.Fatal("active WS did not apply global ban", banCode)
+	}
+	command(bob, "presence.watch", map[string]any{"user_ids": []string{a.User.ID}})
+	if reply := receive(bob, "ack"); reply.Type != "ack" {
+		t.Fatal("banned WS lost read-only access")
+	}
+	unbanRequest, _ := http.NewRequestWithContext(ctx, "DELETE", banURL, strings.NewReader(`{"expected_version":"2"}`))
+	unbanRequest.Header.Set("Authorization", "Bearer "+aToken)
+	unbanRequest.Header.Set("Content-Type", "application/json")
+	unbanResponse, err := client.Do(unbanRequest)
+	if err != nil {
+		t.Fatal("unban route", err)
+	}
+	if unbanResponse.StatusCode != 200 {
+		t.Fatal("unban route status", unbanResponse.StatusCode)
+	}
+	unbanResponse.Body.Close()
+	if !banState.Banned || banState.Version != 2 {
+		t.Fatal("ban route state", banState)
+	}
+	command(bob, "message.send", message.Send{ClientID: uuid.NewString(), Type: "TEXT", Content: message.Content{Text: "unblocked live socket"}})
+	if reply := receive(bob, "ack"); reply.Type != "ack" {
+		t.Fatal("unban did not restore active WS write")
+	}
+	receive(alice, "message.created")
 	// Stop only this script-owned Redis fixture, then restore it for later checks.
 	fixture(t, "stop", "redis")
 	bounded, stopRedisCheck := context.WithTimeout(ctx, 2*time.Second)

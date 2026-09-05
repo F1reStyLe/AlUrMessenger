@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Universal Chat Service",
-    "version": "0.16.0",
+    "version": "0.17.0",
     "description": "Реализованы Phase 0–6 и blacklist 7.1: Project-admin CRUD, versioned enable/disable, audited reject policy и единый transactional content gate для REST/WS/internal sends, IMAGE captions, edits и forwards. Redis limits fail closed; CORS — exact allowlist; responses содержат X-Request-ID, no-store, nosniff."
   },
   "servers": [
@@ -11186,6 +11186,250 @@
           }
         }
       }
+    },
+    "/admin/v1/users/{id}/ban": {
+      "put": {
+        "tags": [
+          "Moderation"
+        ],
+        "operationId": "banProjectUser",
+        "summary": "Make a Project user globally read-only",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "description": "Current unbanned Project admin only. Self/system targets are forbidden and foreign targets are hidden. The transaction locks Project, actor and target so a racing write either commits before the ban or observes USER_BANNED. Repeating an already banned target with its current version is a no-op. Reason is admin-only and omitted from audit/events.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BanUser"
+              },
+              "example": {
+                "reason": "Policy violation",
+                "expected_version": "1"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current ban state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BanState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Request rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/VersionConflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "description": "Request rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Moderation"
+        ],
+        "operationId": "unbanProjectUser",
+        "summary": "Restore Project write access",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "description": "Current unbanned Project admin only. expected_version prevents a stale unban. Active REST and WebSocket write paths observe PostgreSQL state on their next command; read-only history remains available throughout.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnbanUser"
+              },
+              "example": {
+                "expected_version": "2"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current unbanned state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BanState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Request rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/VersionConflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "description": "Request rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      },
+      "options": {
+        "tags": [
+          "CORS"
+        ],
+        "operationId": "preflightProjectUserBan",
+        "summary": "CORS preflight",
+        "security": [],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Preflight accepted for PUT or DELETE"
+          },
+          "403": {
+            "$ref": "#/components/responses/PolicyForbidden"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -13666,6 +13910,70 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "BanUser": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason",
+          "expected_version"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "Trimmed, control-free admin-only reason; not copied to audit or events."
+          },
+          "expected_version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          }
+        }
+      },
+      "UnbanUser": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          }
+        }
+      },
+      "BanState": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "user_id",
+          "banned",
+          "policy_version"
+        ],
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "banned": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Present only while banned; admin-only."
+          },
+          "policy_version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "banned_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Present only while banned."
           }
         }
       }

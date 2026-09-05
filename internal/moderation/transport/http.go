@@ -41,6 +41,19 @@ func reportFailure(w http.ResponseWriter, r *http.Request, err error) {
 	}
 }
 
+func banFailure(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, policy.ErrInvalid):
+		httpserver.WriteError(w, r, 400, "INVALID_REQUEST", "Invalid user ban request")
+	case errors.Is(err, policy.ErrConflict):
+		httpserver.WriteError(w, r, 409, "VERSION_CONFLICT", "User policy version is stale or the last active admin is protected")
+	case errors.Is(err, policy.ErrForbidden):
+		httpserver.WriteError(w, r, 403, "FORBIDDEN", "User ban operation is not permitted")
+	default:
+		identityhttp.Failure(w, r, err)
+	}
+}
+
 // reportPagination accepts the shared opaque UUID cursor plus one exact status
 // filter. Duplicate/unknown query parameters fail rather than being ignored.
 func reportPagination(w http.ResponseWriter, r *http.Request) (status, after string, limit int, ok bool) {
@@ -212,6 +225,34 @@ func RegisterReports(server *httpserver.Server, service *moderation.ReportServic
 		result, err := service.Review(r.Context(), actor, id, command, trace(r))
 		if err != nil {
 			reportFailure(w, r, err)
+			return
+		}
+		httpserver.WriteJSON(w, r, 200, result)
+	})))
+}
+
+// RegisterBans exposes the global Project read-only switch. The target and actor
+// always come from the path/auth context; neither can be supplied in JSON.
+func RegisterBans(server *httpserver.Server, service *moderation.BanService, protect func(http.Handler) http.Handler) {
+	server.Handle("/admin/v1/users/{id}/ban", protect(identityhttp.Methods("PUT, DELETE", func(w http.ResponseWriter, r *http.Request) {
+		actor, id := identityhttp.Actor(r.Context()), r.PathValue("id")
+		var result moderation.BanState
+		var err error
+		if r.Method == "PUT" {
+			var command moderation.BanCommand
+			if !httpserver.ReadJSON(w, r, &command) {
+				return
+			}
+			result, err = service.Ban(r.Context(), actor, id, command, trace(r))
+		} else {
+			var command moderation.UnbanCommand
+			if !httpserver.ReadJSON(w, r, &command) {
+				return
+			}
+			result, err = service.Unban(r.Context(), actor, id, command, trace(r))
+		}
+		if err != nil {
+			banFailure(w, r, err)
 			return
 		}
 		httpserver.WriteJSON(w, r, 200, result)
