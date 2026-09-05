@@ -3,6 +3,8 @@
 REST: POST/GET `/api/v1/conversations/{id}/messages`, GET/PATCH/DELETE `/api/v1/messages/{id}`,
 GET `/api/v1/conversations/{id}/search`. Точные схемы и ошибки — в OpenAPI.
 Публичная отправка TEXT/IMAGE, внутренний SendSystem требует реальную identity kind=system.
+При включённом Project blacklist новый content во всех этих путях проверяется до persistence;
+совпадение возвращает CONTENT_REJECTED без sequence/event (подробно в MODERATION.md).
 IMAGE с attachment_id предусмотрен Phase 6; сейчас IMAGE отклоняется, загрузки ещё нет.
 GROUP/DIRECT: active member; CHANNEL: moderator. Баны запрещают запись, сохраняют чтение.
 После leave нет доступа ни к истории, ни к поиску. Project admin membership не обходит.

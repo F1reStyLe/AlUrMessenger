@@ -9,6 +9,7 @@ import (
 
 	identityhttp "github.com/F1reStyLe/AlUrMessenger/internal/identity/transport"
 	"github.com/F1reStyLe/AlUrMessenger/internal/message"
+	"github.com/F1reStyLe/AlUrMessenger/internal/moderation"
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/httpserver"
 	"github.com/F1reStyLe/AlUrMessenger/internal/policy"
 )
@@ -28,6 +29,8 @@ func Failure(w http.ResponseWriter, r *http.Request, err error) {
 		httpserver.WriteError(w, r, 403, "FEATURE_DISABLED", "Project feature disabled")
 	case errors.Is(err, message.ErrIdempotencyConflict):
 		httpserver.WriteError(w, r, 409, "IDEMPOTENCY_CONFLICT", "Client message ID was used for a different command")
+	case errors.Is(err, moderation.ErrContentRejected):
+		httpserver.WriteError(w, r, 422, "CONTENT_REJECTED", "Content violates Project policy")
 	default:
 		identityhttp.Failure(w, r, err)
 	}

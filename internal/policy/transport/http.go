@@ -43,7 +43,7 @@ func Register(server *httpserver.Server, service *policy.Service, protect func(h
 					return
 				}
 				// Flags endpoint cannot mutate numeric settings through an alias.
-				if r.URL.Path == "/admin/v1/feature-flags" && (patch.MaxUploadSize != nil || patch.RetentionDays != nil) {
+				if r.URL.Path == "/admin/v1/feature-flags" && (patch.MaxUploadSize != nil || patch.RetentionDays != nil || patch.BlacklistEnabled != nil || patch.BlacklistPolicy != nil) {
 					failure(w, r, policy.ErrInvalid)
 					return
 				}

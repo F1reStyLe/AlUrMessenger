@@ -194,7 +194,7 @@ context, ключи серверного шифрования или глоба�
 | Conversations | GET `/admin/v1/conversations`, GET `/admin/v1/conversations/{id}`, GET `/admin/v1/conversations/{id}/messages`; CHANNEL фильтруется type |
 | Moderation | DELETE `/admin/v1/messages/{id}` с reason; обычный moderator использует DELETE `/api/v1/conversations/{id}/moderation/messages/{message_id}` с reason |
 | Reports | GET `/admin/v1/reports`, GET/PATCH `/admin/v1/reports/{id}`; transitions OPEN→REVIEWING→RESOLVED/REJECTED |
-| Blacklist | GET/POST `/admin/v1/blacklist`, PATCH/DELETE `/admin/v1/blacklist/{id}` |
+| Blacklist | **Реализовано 7.1**: GET/POST `/admin/v1/blacklist`, PATCH/DELETE `/admin/v1/blacklist/{id}`; blacklist_enabled/reject в Project settings |
 | API keys | GET/POST `/admin/v1/api-keys`, POST `/admin/v1/api-keys/{id}/revoke`, POST `/admin/v1/api-keys/{id}/rotate`; secret только в create/rotate response |
 | Flags/settings | GET/PATCH `/admin/v1/project`, GET/PATCH `/admin/v1/feature-flags`; expected_version для updates |
 | Webhooks | GET/POST `/admin/v1/webhooks`, GET/PATCH/DELETE `/admin/v1/webhooks/{id}`, POST `/admin/v1/webhooks/{id}/rotate-secret` |

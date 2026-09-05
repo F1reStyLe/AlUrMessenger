@@ -17,6 +17,9 @@ import (
 	"github.com/F1reStyLe/AlUrMessenger/internal/message"
 	messagerepo "github.com/F1reStyLe/AlUrMessenger/internal/message/repository"
 	messagehttp "github.com/F1reStyLe/AlUrMessenger/internal/message/transport"
+	"github.com/F1reStyLe/AlUrMessenger/internal/moderation"
+	moderationrepo "github.com/F1reStyLe/AlUrMessenger/internal/moderation/repository"
+	moderationhttp "github.com/F1reStyLe/AlUrMessenger/internal/moderation/transport"
 	"github.com/F1reStyLe/AlUrMessenger/internal/outbox"
 	"github.com/F1reStyLe/AlUrMessenger/internal/realtime"
 	"io"
@@ -168,6 +171,7 @@ func run(ctx context.Context, service config.Service, output io.Writer) (exitCod
 		conversationhttp.Register(server, conversations, protect)
 		conversationhttp.RegisterMembership(server, &conversation.MembershipService{Store: &conversationrepo.Store{DB: clients.Postgres}}, protect)
 		policyhttp.Register(server, &policy.Service{Store: &policyrepo.Store{DB: clients.Postgres}}, protect)
+		moderationhttp.Register(server, &moderation.Service{Store: &moderationrepo.Store{DB: clients.Postgres}}, protect)
 		apidocs.Register(server)
 		hub := realtime.NewHub()
 		gateway := &realtime.Gateway{Hub: hub, Identity: identities, Messages: messages, Recovery: recovery, Conversations: conversations, Presence: &realtime.Presence{DB: clients.Postgres, Redis: clients.Redis}, Limiter: limiter, AllowNoOrigin: allowNoOrigin}

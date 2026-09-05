@@ -22,12 +22,14 @@ func FlagNames() []string {
 
 // Settings is the trusted database snapshot. Versions are strings for JS precision.
 type Settings struct {
-	ProjectID     string          `json:"project_id"`
-	Name          string          `json:"name"`
-	Flags         map[string]bool `json:"flags"`
-	MaxUploadSize int64           `json:"max_upload_size"`
-	RetentionDays int             `json:"message_retention_days"`
-	Version       int64           `json:"settings_version,string"`
+	ProjectID        string          `json:"project_id"`
+	Name             string          `json:"name"`
+	Flags            map[string]bool `json:"flags"`
+	MaxUploadSize    int64           `json:"max_upload_size"`
+	RetentionDays    int             `json:"message_retention_days"`
+	BlacklistEnabled bool            `json:"blacklist_enabled"`
+	BlacklistPolicy  string          `json:"blacklist_policy"`
+	Version          int64           `json:"settings_version,string"`
 }
 
 // RequireFeature is shared by future write use cases; invoke on the snapshot read
@@ -41,21 +43,26 @@ func (s Settings) RequireFeature(name string) error {
 
 // Patch can change only bounded settings, never issuer, role or Project identity.
 type Patch struct {
-	ExpectedVersion int64            `json:"expected_version,string"`
-	Flags           map[string]*bool `json:"flags"`
-	MaxUploadSize   *int64           `json:"max_upload_size"`
-	RetentionDays   *int             `json:"message_retention_days"`
+	ExpectedVersion  int64            `json:"expected_version,string"`
+	Flags            map[string]*bool `json:"flags"`
+	MaxUploadSize    *int64           `json:"max_upload_size"`
+	RetentionDays    *int             `json:"message_retention_days"`
+	BlacklistEnabled *bool            `json:"blacklist_enabled"`
+	BlacklistPolicy  *string          `json:"blacklist_policy"`
 }
 
 // Validate checks partial maps explicitly, including JSON null flag values.
 func (p Patch) Validate() error {
-	if p.ExpectedVersion < 1 || (len(p.Flags) == 0 && p.MaxUploadSize == nil && p.RetentionDays == nil) {
+	if p.ExpectedVersion < 1 || (len(p.Flags) == 0 && p.MaxUploadSize == nil && p.RetentionDays == nil && p.BlacklistEnabled == nil && p.BlacklistPolicy == nil) {
 		return ErrInvalid
 	}
 	if p.MaxUploadSize != nil && (*p.MaxUploadSize < 1 || *p.MaxUploadSize > 50*1024*1024) {
 		return ErrInvalid
 	}
 	if p.RetentionDays != nil && (*p.RetentionDays < 1 || *p.RetentionDays > 3650) {
+		return ErrInvalid
+	}
+	if p.BlacklistPolicy != nil && *p.BlacklistPolicy != "reject" {
 		return ErrInvalid
 	}
 	known := map[string]bool{}
@@ -81,6 +88,12 @@ func (p Patch) Fields() []string {
 	}
 	if p.RetentionDays != nil {
 		fields = append(fields, "message_retention_days")
+	}
+	if p.BlacklistEnabled != nil {
+		fields = append(fields, "blacklist_enabled")
+	}
+	if p.BlacklistPolicy != nil {
+		fields = append(fields, "blacklist_policy")
 	}
 	sort.Strings(fields)
 	return fields

@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Universal Chat Service",
-    "version": "0.14.0",
-    "description": "Реализованы Foundation, Conversations, Messages, WebSocket и Phase 5. Phase 6 поддерживает валидированный private IMAGE upload, атомарное присоединение к IMAGE message, независимый IMAGE forward и авторизованные минутные download URLs. Redis limits: 120/IP и 60/Project-user за 60s, fail closed 503. CORS — exact allowlist, без cookies. Application responses содержат X-Request-ID, no-store, nosniff."
+    "version": "0.15.0",
+    "description": "Реализованы Phase 0–6 и blacklist 7.1: Project-admin CRUD, versioned enable/disable, audited reject policy и единый transactional content gate для REST/WS/internal sends, IMAGE captions, edits и forwards. Redis limits fail closed; CORS — exact allowlist; responses содержат X-Request-ID, no-store, nosniff."
   },
   "servers": [
     {
@@ -2209,6 +2209,33 @@
         }
       }
     },
+    "/admin/v1/blacklist": {
+      "get": {
+        "tags": ["Moderation"], "operationId": "listBlacklist", "summary": "List Project blacklist entries; admin only", "security": [{"BearerAuth": []}],
+        "parameters": [{"name": "cursor", "in": "query", "schema": {"type": "string"}, "description": "Opaque base64url UUID cursor."}, {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}}],
+        "responses": {"200": {"description": "UUID-keyset page", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BlacklistPage"}}}}, "400": {"description": "INVALID_REQUEST", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}, "401": {"description": "UNAUTHENTICATED", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}, "403": {"$ref": "#/components/responses/PolicyForbidden"}, "405": {"$ref": "#/components/responses/MethodNotAllowed"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+      },
+      "post": {
+        "tags": ["Moderation"], "operationId": "createBlacklistEntry", "summary": "Create normalized whole-word rejection rule; admin only", "security": [{"BearerAuth": []}],
+        "description": "NFC + Unicode case-folded single letter/digit token. Duplicate normalized words return 409. Raw/matched content is never copied to audit or error output.",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BlacklistCreate"}}}},
+        "responses": {"201": {"description": "Created", "headers": {"Location": {"schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BlacklistEntry"}}}}, "400": {"description": "INVALID_REQUEST", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}, "401": {"description": "UNAUTHENTICATED", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}, "403": {"$ref": "#/components/responses/PolicyForbidden"}, "409": {"$ref": "#/components/responses/VersionConflict"}, "415": {"description": "UNSUPPORTED_MEDIA", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+      },
+      "options": {"tags": ["CORS"], "operationId": "preflightBlacklist", "summary": "CORS preflight", "security": [], "responses": {"204": {"description": "Preflight accepted"}, "403": {"$ref": "#/components/responses/PolicyForbidden"}}}
+    },
+    "/admin/v1/blacklist/{id}": {
+      "patch": {
+        "tags": ["Moderation"], "operationId": "patchBlacklistEntry", "summary": "Enable or disable a versioned entry; admin only", "security": [{"BearerAuth": []}],
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BlacklistPatch"}}}},
+        "responses": {"200": {"description": "Updated", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BlacklistEntry"}}}}, "400": {"description": "INVALID_REQUEST", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}, "401": {"description": "UNAUTHENTICATED", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}, "403": {"$ref": "#/components/responses/PolicyForbidden"}, "404": {"$ref": "#/components/responses/NotFound"}, "409": {"$ref": "#/components/responses/VersionConflict"}, "415": {"description": "UNSUPPORTED_MEDIA", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+      },
+      "delete": {
+        "tags": ["Moderation"], "operationId": "deleteBlacklistEntry", "summary": "Delete an entry with audit; admin only", "security": [{"BearerAuth": []}],
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "responses": {"204": {"description": "Deleted"}, "400": {"description": "INVALID_REQUEST", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}, "401": {"description": "UNAUTHENTICATED", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}, "403": {"$ref": "#/components/responses/PolicyForbidden"}, "404": {"$ref": "#/components/responses/NotFound"}, "405": {"$ref": "#/components/responses/MethodNotAllowed"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/Unavailable"}}
+      },
+      "options": {"tags": ["CORS"], "operationId": "preflightBlacklistEntry", "summary": "CORS preflight", "security": [], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}], "responses": {"204": {"description": "Preflight accepted"}, "403": {"$ref": "#/components/responses/PolicyForbidden"}}}
+    },
     "/admin/v1/audit-logs": {
       "get": {
         "tags": [
@@ -3422,6 +3449,10 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "CONTENT_REJECTED: normalized whole word matches enabled Project blacklist; no message, sequence, index or event is persisted.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "201": {
             "description": "Created with initial memberships and audit",
@@ -6339,6 +6370,10 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "CONTENT_REJECTED: replacement text matches the enabled Project blacklist; original ciphertext/index/version remain unchanged.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "409": {
             "description": "VERSION_CONFLICT: reload current message and resolve the concurrent edit.",
@@ -10387,6 +10422,8 @@
           "flags",
           "max_upload_size",
           "message_retention_days",
+          "blacklist_enabled",
+          "blacklist_policy",
           "settings_version"
         ],
         "properties": {
@@ -10411,6 +10448,14 @@
             "minimum": 1,
             "maximum": 3650,
             "default": 365
+          },
+          "blacklist_enabled": {
+            "type": "boolean",
+            "default": false
+          },
+          "blacklist_policy": {
+            "type": "string",
+            "const": "reject"
           },
           "settings_version": {
             "type": "string",
@@ -10486,6 +10531,13 @@
             "minimum": 1,
             "maximum": 3650,
             "default": 365
+          },
+          "blacklist_enabled": {
+            "type": "boolean"
+          },
+          "blacklist_policy": {
+            "type": "string",
+            "const": "reject"
           }
         },
         "example": {
@@ -10494,6 +10546,38 @@
             "allow_images": false
           }
         }
+      },
+      "BlacklistCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["word"],
+        "properties": {"word": {"type": "string", "minLength": 1, "maxLength": 256, "description": "One Unicode letter/digit token; NFC and case-folding are server-side."}},
+        "example": {"word": "спам"}
+      },
+      "BlacklistPatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["enabled", "expected_version"],
+        "properties": {"enabled": {"type": "boolean"}, "expected_version": {"type": "string", "pattern": "^[1-9][0-9]*$"}}
+      },
+      "BlacklistEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "normalized_word", "enabled", "resource_version", "created_at", "updated_at"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "normalized_word": {"type": "string"},
+          "enabled": {"type": "boolean"},
+          "resource_version": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "BlacklistPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "next_cursor"],
+        "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/BlacklistEntry"}}, "next_cursor": {"type": ["string", "null"]}}
       },
       "FlagsPatch": {
         "type": "object",
@@ -11630,6 +11714,10 @@
     {
       "name": "Administration",
       "description": "Требуется локальная роль admin в Chat DB; banned actors read-only. Роль JWT/Auth не даёт полномочий."
+    },
+    {
+      "name": "Moderation",
+      "description": "Project-scoped admin moderation configuration and audited actions."
     },
     {
       "name": "CORS",

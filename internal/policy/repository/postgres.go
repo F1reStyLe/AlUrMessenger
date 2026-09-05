@@ -16,12 +16,12 @@ import (
 type Store struct{ DB *pgxpool.Pool }
 
 // projection joins the name without exposing authentication bindings through admin DTO.
-const projection = `SELECT s.project_id::text,p.name,s.flags,s.max_upload_size,s.message_retention_days,s.settings_version FROM chat.project_settings s JOIN chat.projects p ON p.id=s.project_id WHERE s.project_id=$1`
+const projection = `SELECT s.project_id::text,p.name,s.flags,s.max_upload_size,s.message_retention_days,s.blacklist_enabled,s.blacklist_policy,s.settings_version FROM chat.project_settings s JOIN chat.projects p ON p.id=s.project_id WHERE s.project_id=$1`
 
 // scan validates JSON decoding; corrupt settings fail closed instead of applying defaults.
 func scan(row pgx.Row) (policy.Settings, error) {
 	var s policy.Settings
-	err := row.Scan(&s.ProjectID, &s.Name, &s.Flags, &s.MaxUploadSize, &s.RetentionDays, &s.Version)
+	err := row.Scan(&s.ProjectID, &s.Name, &s.Flags, &s.MaxUploadSize, &s.RetentionDays, &s.BlacklistEnabled, &s.BlacklistPolicy, &s.Version)
 	return s, err
 }
 
@@ -77,11 +77,17 @@ func (s *Store) Update(ctx context.Context, a identity.Actor, p policy.Patch, tr
 	if p.RetentionDays != nil {
 		current.RetentionDays = *p.RetentionDays
 	}
+	if p.BlacklistEnabled != nil {
+		current.BlacklistEnabled = *p.BlacklistEnabled
+	}
+	if p.BlacklistPolicy != nil {
+		current.BlacklistPolicy = *p.BlacklistPolicy
+	}
 	flags, err := json.Marshal(current.Flags)
 	if err != nil {
 		return current, err
 	}
-	if err = tx.QueryRow(ctx, `UPDATE chat.project_settings SET flags=$2,max_upload_size=$3,message_retention_days=$4,settings_version=settings_version+1,updated_by=$5,updated_at=now() WHERE project_id=$1 RETURNING settings_version`, a.ProjectID, flags, current.MaxUploadSize, current.RetentionDays, a.User.ID).Scan(&current.Version); err != nil {
+	if err = tx.QueryRow(ctx, `UPDATE chat.project_settings SET flags=$2,max_upload_size=$3,message_retention_days=$4,blacklist_enabled=$5,blacklist_policy=$6,settings_version=settings_version+1,updated_by=$7,updated_at=now() WHERE project_id=$1 RETURNING settings_version`, a.ProjectID, flags, current.MaxUploadSize, current.RetentionDays, current.BlacklistEnabled, current.BlacklistPolicy, a.User.ID).Scan(&current.Version); err != nil {
 		return current, err
 	}
 	if _, err = tx.Exec(ctx, "UPDATE chat.projects SET policy_version=policy_version+1,updated_at=now() WHERE id=$1", a.ProjectID); err != nil {

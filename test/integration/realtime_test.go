@@ -32,6 +32,9 @@ import (
 	"github.com/F1reStyLe/AlUrMessenger/internal/message"
 	messagerepo "github.com/F1reStyLe/AlUrMessenger/internal/message/repository"
 	messagehttp "github.com/F1reStyLe/AlUrMessenger/internal/message/transport"
+	"github.com/F1reStyLe/AlUrMessenger/internal/moderation"
+	moderationrepo "github.com/F1reStyLe/AlUrMessenger/internal/moderation/repository"
+	moderationhttp "github.com/F1reStyLe/AlUrMessenger/internal/moderation/transport"
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/admission"
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/config"
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/httpserver"
@@ -93,6 +96,9 @@ func testRealtime(t *testing.T, clients *infrastructure.Clients, op *pgx.Conn) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err = op.Exec(ctx, "UPDATE chat.users SET role='admin' WHERE project_id=$1 AND id=$2", project, a.User.ID); err != nil {
+		t.Fatal(err)
+	}
 	b, err := identities.Authenticate(ctx, bToken)
 	if err != nil {
 		t.Fatal(err)
@@ -127,6 +133,7 @@ func testRealtime(t *testing.T, clients *infrastructure.Clients, op *pgx.Conn) {
 		messagehttp.Register(server, messages, protect)
 		messagehttp.RegisterRecovery(server, recovery, protect)
 		attachmenthttp.Register(server, attachment.New(&attachmentrepo.Store{DB: clients.Postgres}, clients.Storage, config.Upload{MaxBytes: 50 << 20, MaxDimension: 8192, MaxPixels: 16_000_000, DecodeConcurrency: 2}), protect)
+		moderationhttp.Register(server, &moderation.Service{Store: &moderationrepo.Store{DB: clients.Postgres}}, protect)
 		listener, e := net.Listen("tcp", "127.0.0.1:0")
 		if e != nil {
 			t.Fatal(e)
@@ -279,6 +286,13 @@ func testRealtime(t *testing.T, clients *infrastructure.Clients, op *pgx.Conn) {
 	collection := "/api/v1/conversations/" + conv.ID
 	request("GET", "/api/v1/attachments/"+uploaded.ID, "", 200)
 	request("POST", "/api/v1/attachments/"+uploaded.ID+"/download-url", "", 200)
+	var wireEntry moderation.Entry
+	if e := json.Unmarshal(request("POST", "/admin/v1/blacklist", `{"word":"wireblock"}`, 201), &wireEntry); e != nil {
+		t.Fatal(e)
+	}
+	request("GET", "/admin/v1/blacklist", "", 200)
+	request("PATCH", "/admin/v1/blacklist/"+wireEntry.ID, `{"enabled":false,"expected_version":"1"}`, 200)
+	request("DELETE", "/admin/v1/blacklist/"+wireEntry.ID, "", 204)
 	data, _ := json.Marshal(send)
 	request("POST", collection+"/messages", string(data), 200)
 	request("GET", "/api/v1/messages/"+sent.Message.ID, "", 200)

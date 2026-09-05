@@ -443,3 +443,16 @@ Unattached metadata доступна uploader до expiry. После attach и�
 маскируется 404, ban сохраняет read-only. Backend и signer endpoints разделены, bucket остаётся private.
 Worker переводит stale upload/expired unattached object в durable pending_delete, выполняет
 идемпотентный delete и повторяет после crash; object с attached logical reference не выбирается.
+
+## D42 — Whole-word blacklist reject gate (шаг 7.1)
+
+Статус: принято. Entry хранит только NFC + Unicode case-folded один letter/digit token. Проверка
+идёт по целым словам: предсказуема для разных регистров/Unicode, но сознательно не ловит substring,
+fuzzy spelling и обфускацию. MVP policy только `reject`; режимы redact/replace отклонены, потому что
+они незаметно меняли бы зашифрованный пользовательский content.
+
+Gate выполняется в transaction каждого нового content write после access locks и до любых message
+mutations. Он общий для human/bot/internal SYSTEM, TEXT, IMAGE caption, edit и forward. Rejection
+возвращает только CONTENT_REJECTED и ничего не пишет в message/search/outbox. Matching send retry
+не является новой записью content и возвращает прежний receipt. CRUD Project-admin-only,
+tenant-scoped, versioned; audit намеренно не хранит normalized word.

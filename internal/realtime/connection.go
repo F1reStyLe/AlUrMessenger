@@ -14,6 +14,7 @@ import (
 	"github.com/F1reStyLe/AlUrMessenger/internal/conversation"
 	"github.com/F1reStyLe/AlUrMessenger/internal/identity"
 	"github.com/F1reStyLe/AlUrMessenger/internal/message"
+	"github.com/F1reStyLe/AlUrMessenger/internal/moderation"
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/admission"
 	"github.com/F1reStyLe/AlUrMessenger/internal/platform/httpserver"
 	"github.com/F1reStyLe/AlUrMessenger/internal/policy"
@@ -223,6 +224,8 @@ func errorCode(err error) string {
 		return "VERSION_CONFLICT"
 	case errors.Is(err, message.ErrResync):
 		return "RESYNC_REQUIRED"
+	case errors.Is(err, moderation.ErrContentRejected):
+		return "CONTENT_REJECTED"
 	default:
 		return "DEPENDENCY_UNAVAILABLE"
 	}

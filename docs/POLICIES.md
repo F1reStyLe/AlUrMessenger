@@ -10,7 +10,8 @@ JWT доказывает идентичность через Auth, но не н�
 через user-role описано в [Identity](IDENTITY.md); перевыпуск JWT не нужен.
 
 Оба GET возвращают единый Settings DTO. PATCH project принимает частичные flags,
-max_upload_size (1..52428800 bytes), message_retention_days (1..3650); PATCH feature-flags
+max_upload_size (1..52428800 bytes), message_retention_days (1..3650), blacklist_enabled и
+blacklist_policy=`reject`; PATCH feature-flags
 принимает только flags. Обязателен expected_version как десятичная строка. Неверные поля,
 null flags, пустое изменение или выход за bounds дают 400; старая версия — 409.
 Пример: `{"expected_version":"1","flags":{"allow_images":false}}`.
@@ -19,7 +20,8 @@ Project row lock; только одно изменение с данной ве�
 
 Defaults: allow_images/reactions/edit/delete/forward/reply/pin, typing_enabled,
 presence_enabled/read_receipts=true; allow_bots/allow_webhooks=false. Dev seed включает
-последние два только до первого admin edit. Upload=10 MiB, retention=365 дней.
+последние два только до первого admin edit. Upload=10 MiB, retention=365 дней,
+blacklist disabled с policy reject.
 Эти настройки не реализуют отправку сообщений/файлов сами по себе: будущие use cases
 должны вызывать RequireFeature на snapshot под shared Project lock своей транзакции.
 Изменение retention не запускает удаление и не меняет существующие сроки хранения.

@@ -17,6 +17,7 @@ import (
 	eventrepo "github.com/F1reStyLe/AlUrMessenger/internal/event/repository"
 	"github.com/F1reStyLe/AlUrMessenger/internal/identity"
 	"github.com/F1reStyLe/AlUrMessenger/internal/message"
+	moderationrepo "github.com/F1reStyLe/AlUrMessenger/internal/moderation/repository"
 	"github.com/F1reStyLe/AlUrMessenger/internal/policy"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -267,6 +268,13 @@ func (s *Store) Send(ctx context.Context, a identity.Actor, conversation string,
 		if _, err = tx.Exec(ctx, "DELETE FROM chat.message_idempotency WHERE project_id=$1 AND sender_id=$2 AND client_message_id=$3", a.ProjectID, a.User.ID, p.ClientID); err != nil {
 			return message.Sent{}, err
 		}
+	}
+	content := p.Content.Text
+	if p.Type == "IMAGE" {
+		content = p.Content.Caption
+	}
+	if err = moderationrepo.CheckContent(ctx, tx, a.ProjectID, content); err != nil {
+		return message.Sent{}, err
 	}
 	// A new IMAGE consumes one ready logical attachment under the same
 	// transaction. This check intentionally follows the dedup receipt path: an

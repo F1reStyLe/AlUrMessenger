@@ -150,6 +150,9 @@ func (l *Limiter) Before(next http.Handler) http.Handler {
 			reactionItem := len(segments) == 6 && segments[0] == "api" && segments[1] == "v1" && segments[2] == "messages" && segments[4] == "reactions"
 			pinItem := len(segments) == 6 && segments[0] == "api" && segments[1] == "v1" && segments[2] == "conversations" && segments[4] == "pins"
 			allowed = allowed || ((reactionItem || pinItem) && (method == "PUT" || method == "DELETE"))
+			blacklistCollection := r.URL.Path == "/admin/v1/blacklist"
+			blacklistItem := len(segments) == 4 && segments[0] == "admin" && segments[1] == "v1" && segments[2] == "blacklist"
+			allowed = allowed || (blacklistCollection && method == "POST") || (blacklistItem && (method == "PATCH" || method == "DELETE"))
 			for _, h := range strings.Split(r.Header.Get("Access-Control-Request-Headers"), ",") {
 				switch strings.ToLower(strings.TrimSpace(h)) {
 				case "", "authorization", "content-type", "x-request-id":

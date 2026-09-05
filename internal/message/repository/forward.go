@@ -12,6 +12,7 @@ import (
 	eventrepo "github.com/F1reStyLe/AlUrMessenger/internal/event/repository"
 	"github.com/F1reStyLe/AlUrMessenger/internal/identity"
 	"github.com/F1reStyLe/AlUrMessenger/internal/message"
+	moderationrepo "github.com/F1reStyLe/AlUrMessenger/internal/moderation/repository"
 	"github.com/F1reStyLe/AlUrMessenger/internal/policy"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -111,6 +112,13 @@ func (s *Store) forward(ctx context.Context, a identity.Actor, target string, co
 			return message.Sent{}, identity.ErrNotFound
 		}
 	}
+	content := source.Content.Text
+	if source.Type == "IMAGE" {
+		content = source.Content.Caption
+	}
+	if err = moderationrepo.CheckContent(ctx, tx, a.ProjectID, content); err != nil {
+		return message.Sent{}, err
+	}
 	original := message.SenderSnapshot{}
 	if source.Forward != nil {
 		original = source.Forward.OriginalSender
@@ -121,10 +129,7 @@ func (s *Store) forward(ctx context.Context, a identity.Actor, target string, co
 		}
 	}
 	forward := &message.Forward{MessageID: source.ID, OriginalSender: original}
-	searchText := source.Content.Text
-	if source.Type == "IMAGE" {
-		searchText = source.Content.Caption
-	}
+	searchText := content
 	searchVersion, tokens, err := s.Crypto.Index(a.ProjectID, searchText)
 	if errors.Is(err, cryptography.ErrTokens) {
 		return message.Sent{}, policy.ErrInvalid

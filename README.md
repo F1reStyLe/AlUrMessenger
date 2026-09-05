@@ -13,7 +13,8 @@ Phase 0 и **Phase 1 — Foundation (1.1–1.6)** завершены: API/worker
 feature-flag matrix и безопасный replay текущего состояния.
 Шаги **6.1–6.2** добавляют [проверенный private image upload, IMAGE messages/forward,
 авторизованную выдачу и crash-safe cleanup](docs/ATTACHMENTS.md). Phase 6 полностью проверена;
-следующий шаг — moderation blacklist 7.1. Phase 7–10, gRPC и frontend ещё не реализованы.
+шаг **7.1** добавляет [Project blacklist и единый content write gate](docs/MODERATION.md).
+Следующий шаг — reports 7.2. Остальная Phase 7–10, gRPC и frontend ещё не реализованы.
 Добавлены [Project policies, CORS, Redis limits и audit](docs/POLICIES.md).
 Swagger UI доступен на `/docs/api`, спецификация — `/docs/api/openapi.json`.
 Readiness подтверждает готовность инфраструктуры, а не всего Chat API.

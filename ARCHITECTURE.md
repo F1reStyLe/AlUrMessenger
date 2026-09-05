@@ -15,7 +15,8 @@ transactional event log/outbox, Kafka→Redis router, WS/recovery/checkpoints/pr
 authorized recovery гидратирует актуальный Message, включая relations или terminal tombstone.
 Шаг 5.4 закрепляет единую flag/changefeed hydration матрицу Phase 5 без новой схемы.
 Точный текущий контракт: [Messages](docs/MESSAGES.md), [Realtime](docs/REALTIME.md).
-Возможности Phase 7–10 ниже остаются архитектурным планом.
+Blacklist 7.1 реализован отдельным moderation module и вызывается единым message write gate;
+остальная Phase 7–10 ниже остаётся архитектурным планом.
 Шаги 6.1–6.2 вводят модуль attachment: HTTP только разбирает bounded multipart, application полностью
 валидирует/декодирует image, PostgreSQL repository ведёт explicit lifecycle, objectstore adapter
 пишет private namespaced object. Контракт: [Attachments](docs/ATTACHMENTS.md).

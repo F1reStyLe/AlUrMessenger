@@ -64,6 +64,11 @@ reply/forward/attachment проверяется независимо; cross-proj
 Global ban запрещает domain writes, включая profile, creation, messages, reactions, reports,
 checkpoints и typing. Group/channel membership ban ограничивает writes только этого conversation.
 Leave/kick отзывает чтение, включая выдачу новых download URLs; не удаляет историю остальных.
+Blacklist 7.1 проверяется внутри общей message transaction после Project/actor/access locks и до
+sequence/ciphertext/index/outbox mutation. NFC + Unicode case folding и whole letter/digit tokens
+исключают case bypass; substring сознательно не блокируется. 422 и audit не содержат matched word
+или message content. Human, bot, internal SYSTEM, IMAGE caption, edit и forward используют один gate.
+
 Запрет записи не мешает heartbeat, reconnect и ранее разрешённому чтению. Смена роли/moderation
 синхронизируется через общий transaction lock protocol, а не только через кеш.
 

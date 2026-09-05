@@ -114,6 +114,8 @@ func TestConversationMessageAndRecoveryRoutes(t *testing.T) {
 		"/api/v1/attachments":                          {"post", "options"},
 		"/api/v1/attachments/{id}":                     {"get", "options"},
 		"/api/v1/attachments/{id}/download-url":        {"post", "options"},
+		"/admin/v1/blacklist":                           {"get", "post", "options"},
+		"/admin/v1/blacklist/{id}":                      {"patch", "delete", "options"},
 		"/api/v1/conversations/{id}":                   {"get", "patch", "options"},
 		"/api/v1/conversations/{id}/members":           {"get", "post", "options"},
 		"/api/v1/conversations/{id}/members/{user_id}": {"patch", "delete", "options"},

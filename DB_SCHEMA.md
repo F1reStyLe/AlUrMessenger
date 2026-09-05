@@ -91,7 +91,7 @@ Message attach и pending_delete синхронизируются lock объе�
 
 | Таблица | Основные поля | Constraints / индексы |
 | --- | --- | --- |
-| blacklist_entries | id, project_id, normalized_word, enabled, created_by, created_at, updated_at | UNIQUE(project_id,normalized_word); policy reject в MVP; normalized matching как в DECISIONS |
+| blacklist_entries | id, project_id, normalized_word, enabled, resource_version, created_by, created_at, updated_at | UNIQUE(project_id,id), UNIQUE(project_id,normalized_word); NFC/case-folded whole-word reject; versioned enable |
 | reports | id, project_id, reporter_id, target_user_id, message_id, conversation_id, reason, description, status OPEN/REVIEWING/RESOLVED/REJECTED, reviewed_by, reviewed_at, created_at | CHECK есть target_user_id или message_id; composite FK и target consistency; index(project_id,status,created_at,id) |
 | audit_logs | id, project_id, actor_id, actor_type, action, resource_type, resource_id, metadata, ip, request_id, created_at | index(project_id,created_at DESC,id); append-only application access |
 | webhook_subscriptions | id, project_id, url, encrypted_secret, secret_key_version, enabled, subscribed_events, created_at, updated_at | index(project_id,enabled); URL allow/deny policy до сохранения и на каждой доставке |

@@ -10,6 +10,7 @@ import (
 	eventrepo "github.com/F1reStyLe/AlUrMessenger/internal/event/repository"
 	"github.com/F1reStyLe/AlUrMessenger/internal/identity"
 	"github.com/F1reStyLe/AlUrMessenger/internal/message"
+	moderationrepo "github.com/F1reStyLe/AlUrMessenger/internal/moderation/repository"
 	"github.com/F1reStyLe/AlUrMessenger/internal/policy"
 	"github.com/jackc/pgx/v5"
 )
@@ -89,6 +90,9 @@ func (s *Store) Edit(ctx context.Context, a identity.Actor, id, scope string, p 
 	}
 	if m.Version != p.ExpectedVersion {
 		return message.Message{}, policy.ErrConflict
+	}
+	if err = moderationrepo.CheckContent(ctx, tx, a.ProjectID, p.Content.Text); err != nil {
+		return message.Message{}, err
 	}
 	searchVersion, tokens, err := s.Crypto.Index(a.ProjectID, p.Content.Text)
 	if errors.Is(err, cryptography.ErrTokens) {

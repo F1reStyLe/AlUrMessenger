@@ -6,8 +6,8 @@ Commit/push — только по прямому требованию польз
 игнорируемом `Agents.md`; результаты фазы и инструкции запуска отражаются в versioned документации.
 
 Текущая реализация: Phase 0–6. Upload, IMAGE send/forward, current authorization, short download URL,
-recoverable cleanup и полный negative/failure audit реализованы. Следующий шаг — 7.1 blacklist.
-Phase 7–10 ещё не реализованы.
+recoverable cleanup и полный negative/failure audit реализованы. Blacklist 7.1 также реализован;
+следующий шаг — reports 7.2. Остальная Phase 7–10 ещё не реализована.
 Контракты и ограничения: docs/CONVERSATIONS.md, docs/MESSAGES.md, docs/REALTIME.md.
 
 ## Порядок работы и Definition of Done
