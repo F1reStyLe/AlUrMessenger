@@ -1,4 +1,4 @@
-# Реализованный WebSocket и recovery — Phase 4 и шаги 5.1–5.3
+# Реализованный WebSocket и recovery — Phase 4–5
 
 `GET /ws`, subprotocol `chat.v1`. TLS завершается на production ingress; публично только WSS.
 Exact Origin allowlist общий с REST. Отсутствие Origin запрещено, кроме явного

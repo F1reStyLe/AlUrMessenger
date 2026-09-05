@@ -3,7 +3,7 @@
   "info": {
     "title": "Universal Chat committed events",
     "version": "1.0.0",
-    "description": "Phase 3–5.3 reference-only Kafka events; current message/relation/forward state is hydrated only by authorized HTTP/WS replay. Forward message.created never carries content, author snapshot or source conversation."
+    "description": "Phase 3–5 reference-only Kafka events; current message/relation/forward state is hydrated only by authorized HTTP/WS replay. Forward message.created never carries content, author snapshot or source conversation."
   },
   "defaultContentType": "application/json",
   "servers": {

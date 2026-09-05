@@ -363,14 +363,14 @@ func testMessageFeatures(t *testing.T, db *pgxpool.Pool, op *pgx.Conn) {
 // assertTombstone verifies both typed projection and actual JSON serialization.
 func assertTombstone(t *testing.T, m message.Message, err error, status string) {
 	t.Helper()
-	if err != nil || m.ID == "" || m.Status != status || m.Content != nil || m.Metadata != nil || m.Reply != nil {
+	if err != nil || m.ID == "" || m.Status != status || m.Content != nil || m.Metadata != nil || m.Reply != nil || m.Forward != nil {
 		t.Fatal("invalid tombstone", m.ID, m.Status, err)
 	}
 	data, e := json.Marshal(m)
 	if e != nil {
 		t.Fatal(e)
 	}
-	for _, key := range [][]byte{[]byte(`"content"`), []byte(`"metadata"`), []byte(`"reply"`)} {
+	for _, key := range [][]byte{[]byte(`"content"`), []byte(`"metadata"`), []byte(`"reply"`), []byte(`"forward"`)} {
 		if bytes.Contains(data, key) {
 			t.Fatal("tombstone leaks", string(key))
 		}

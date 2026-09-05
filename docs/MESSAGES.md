@@ -1,4 +1,4 @@
-# Messages — реализованный контракт Phase 3 и шагов 5.1–5.3
+# Messages — реализованный контракт Phase 3 и Phase 5
 
 REST: POST/GET `/api/v1/conversations/{id}/messages`, GET/PATCH/DELETE `/api/v1/messages/{id}`,
 GET `/api/v1/conversations/{id}/search`. Точные схемы и ошибки — в OpenAPI.
@@ -133,3 +133,20 @@ message, повторно проверяя target permissions и allow_forward, 
 Stored `message.created` остаётся reference-only и содержит лишь `forwarded:true`; body и attribution
 появляются только при authorized hydration. Cross-conversation forward transaction сериализуется
 per-Project advisory lock, чтобы встречные пересылки не образовали lock-order deadlock.
+
+## Итоговая матрица Phase 5 — 5.4
+
+| Операция | Обязательный flag | Проверяется на повторе/no-op | Current state |
+| --- | --- | --- | --- |
+| send reply | allow_reply | да, matching receipt | reply reference в Get/history/search/snapshot/replay |
+| edit | allow_edit | каждый optimistic request | новый body/version во всех read paths |
+| delete | allow_delete | да, повтор terminal delete | tombstone без body/reply/forward/relations |
+| reaction add/remove | allow_reactions | да, existing add/absent remove | агрегированные counts либо пустой terminal state |
+| pin/unpin | allow_pin | да, existing pin/absent remove | Message.pin и полная snapshot.pins collection |
+| send forward | allow_forward | да, matching receipt | независимый encrypted snapshot либо redacted tombstone |
+
+Flags блокируют новые mutations, но не скрывают уже разрешённое сохранённое состояние.
+Каждый message-affecting event хранит только reference. Authorized REST replay и WS delivery
+гидратируют один полный текущий Message; клиент заменяет DTO целиком. Интеграционный audit
+проводит forward через created/updated/reaction.created/reaction.deleted/pinned/unpinned/deleted
+и требует одинаковый финальный tombstone во всех событиях, history и snapshot.

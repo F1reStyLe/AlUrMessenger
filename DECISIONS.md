@@ -297,7 +297,7 @@ read_receipts скрывает peer receipts через sync.advance, но со�
 presence.state/typing.state snapshots. Presence watch до 100 IDs с текущим membership;
 typing TTL 5s. UI заменяет состояние целиком, unavailable не равно offline. Redis connection
 lease 75s продлевается только после pong; last_seen flush каждые 30s, до 256 markers.
-Ограничения и точные поля отражены в docs/REALTIME.md; gRPC, bots и Phase 5–10 не реализованы.
+Ограничения и точные поля отражены в docs/REALTIME.md; gRPC, bots и Phase 6–10 не реализованы.
 
 ## D36 — Reply, optimistic edit и redaction (шаг 5.1)
 
@@ -398,3 +398,17 @@ display name и source conversation доступны лишь после current
 Forward берёт per-Project advisory lock до conversation locks. Это сознательное ограничение MVP:
 редкая операция сериализуется внутри tenant, зато встречные A→B/B→A transactions не создают
 циклический lock order. Обычные send/edit/delete/reaction/pin этот lock не используют.
+
+## D39 — Единая flag и hydration матрица Phase 5 (шаг 5.4)
+
+Статус: принято. Каждый feature flag проверяется внутри той же PostgreSQL transaction после
+актуальных Project/actor/conversation locks. Проверка обязательна и для matching idempotency retry,
+повторного delete, existing reaction/pin add и отсутствующего remove: выключение функции запрещает
+её command path, но не удаляет и не маскирует ранее сохранённое состояние в read APIs.
+
+Все семь message-affecting event types Phase 5 гидратируются одним current Message:
+message.created/updated/deleted, reaction.created/deleted, message.pinned/unpinned. Stored event,
+outbox и Kafka остаются reference-only. Get/history/search/snapshot, REST/WS acknowledgements,
+live WS и reconnect replay используют одну projection; terminal state всегда заменяет DTO целиком
+без content/metadata/reply/forward/reactions/pin. Отдельные historical delta DTO отклонены: они
+усложнили бы порядок edit/delete/relation событий и могли воскресить устаревшее состояние.

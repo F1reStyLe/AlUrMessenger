@@ -1,6 +1,6 @@
 # WebSocket protocol v1
 
-Endpoint `/ws`, subprotocol `chat.v1`, production только WSS. Реализация Phase 4/5.1–5.3 и её
+Endpoint `/ws`, subprotocol `chat.v1`, production только WSS. Реализация Phase 4–5 и её
 точные пределы описаны в [docs/REALTIME.md](docs/REALTIME.md); этот документ также содержит
 целевые команды будущих фаз (bot credentials).
 Текущие ephemeral события — presence.state/typing.state с полной заменой наблюдаемого

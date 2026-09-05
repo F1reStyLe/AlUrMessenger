@@ -1,6 +1,6 @@
 # Kafka, changefeed и webhooks
 
-События — versioned факты; source of truth — PostgreSQL. Phase 3–4 и шаги 5.1–5.3 реализуют
+События — versioned факты; source of truth — PostgreSQL. Phase 3–5 реализуют
 conversation/message/checkpoint events и consumer inbox; остальные события ниже — будущие фазы.
 Machine-readable [AsyncAPI](api/asyncapi/asyncapi.json) описывает действующий Kafka transport.
 HTTP-публикация `/docs/asyncapi` и `/docs/webhooks` будет добавлена с документацией интеграций.

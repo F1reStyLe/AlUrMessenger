@@ -13,8 +13,9 @@ transactional event log/outbox, Kafka→Redis router, WS/recovery/checkpoints/pr
 зашифрованный TEXT forward (migration 11) с историческим snapshot исходного автора.
 Все изменения message state используют общий resource_version и transactional reference events;
 authorized recovery гидратирует актуальный Message, включая relations или terminal tombstone.
+Шаг 5.4 закрепляет единую flag/changefeed hydration матрицу Phase 5 без новой схемы.
 Точный текущий контракт: [Messages](docs/MESSAGES.md), [Realtime](docs/REALTIME.md).
-Остальные возможности Phase 5–10 ниже остаются архитектурным планом.
+Возможности Phase 6–10 ниже остаются архитектурным планом.
 Основание: [ТЗ](docs/REQUIREMENTS.md), [решения](DECISIONS.md), [план](IMPLEMENTATION_PLAN.md).
 Проект создаётся с нуля; совместимость с удалённым прототипом не требуется.
 
