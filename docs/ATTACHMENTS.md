@@ -37,3 +37,8 @@ message, sequence, blind index, dedup receipt и outbox фиксируются �
 Worker переводит uploads старше часа и истёкшие unattached rows в durable `pending_delete`, удаляет
 точный namespaced key идемпотентно и завершает `deleted`. Объект с attached reference не выбирается;
 crash или MinIO failure оставляет `pending_delete` для повторного запуска.
+
+Аудит 6.3 проверяет cross-Project/nonmember denial без lifecycle mutation, конкурентное потребление
+одного upload ровно одним message без sequence gap, caption search, allow_images на matching retry,
+запрет TEXT edit для IMAGE, сохранение read state при выключенном flag и retry `pending_delete`
+после storage outage. Unit-набор отдельно покрывает invalid/oversized/mismatched/polyglot input.

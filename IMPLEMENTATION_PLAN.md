@@ -5,9 +5,9 @@
 Commit/push — только по прямому требованию пользователя. Локальный журнал шагов ведётся в
 игнорируемом `Agents.md`; результаты фазы и инструкции запуска отражаются в versioned документации.
 
-Текущая реализация: Phase 0–5 и шаги 6.1–6.2. Upload, IMAGE send/forward, current authorization,
-short download URL и recoverable cleanup реализованы. Следующий шаг — 6.3, полный audit и failure
-tests Phase 6. Phase 7–10 ещё не реализованы.
+Текущая реализация: Phase 0–6. Upload, IMAGE send/forward, current authorization, short download URL,
+recoverable cleanup и полный negative/failure audit реализованы. Следующий шаг — 7.1 blacklist.
+Phase 7–10 ещё не реализованы.
 Контракты и ограничения: docs/CONVERSATIONS.md, docs/MESSAGES.md, docs/REALTIME.md.
 
 ## Порядок работы и Definition of Done

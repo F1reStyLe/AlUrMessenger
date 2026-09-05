@@ -206,6 +206,7 @@ func TestInfrastructureLifecycle(t *testing.T) {
 	// Private object: авторизованный round-trip проходит, anonymous GET запрещён.
 	t.Run("event-routing", func(t *testing.T) { testEventRouting(t, clients, cfg) })
 	t.Run("attachment-upload", func(t *testing.T) { testAttachmentUpload(t, clients, migrator) })
+	t.Run("phase6-audit", func(t *testing.T) { testPhase6Audit(t, clients, migrator) })
 	t.Run("realtime", func(t *testing.T) { testRealtime(t, clients, migrator) })
 	// Storage owns a fresh deadline: the Kafka budget must not expire while the
 	// independent realtime scenario exercises reconnect, expiry and Redis outages.
