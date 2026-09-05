@@ -7,6 +7,7 @@
 [Project permissions, audit, CORS и Redis quotas](docs/POLICIES.md).
 Реализованы также AES-GCM/AAD и blind search без plaintext-копии ([Messages](docs/MESSAGES.md)),
 current-membership replay, отзыв WS-сессий через Auth и ephemeral privacy ([Realtime](docs/REALTIME.md)).
+Шаг 5.3 проверяет source/target independently и не раскрывает source conversation в forward DTO.
 Это не внешний security audit и не production TLS/HA deployment.
 
 ## Trust boundaries

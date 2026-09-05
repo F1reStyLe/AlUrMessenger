@@ -94,7 +94,7 @@ func (s *Store) Edit(ctx context.Context, a identity.Actor, id, scope string, p 
 	if err != nil {
 		return message.Message{}, err
 	}
-	plain, err := json.Marshal(message.Payload{Content: p.Content, Metadata: m.Metadata})
+	plain, err := json.Marshal(message.Payload{Content: p.Content, Metadata: m.Metadata, Forward: m.Forward})
 	if err != nil {
 		return message.Message{}, err
 	}

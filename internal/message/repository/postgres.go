@@ -29,7 +29,7 @@ type Store struct {
 }
 
 // columns contains ciphertext only; the decoder runs after an authorized lookup.
-const columns = `m.id::text,m.conversation_id::text,m.sender_id::text,m.type,m.sequence,m.resource_version,m.created_at,m.expires_at,m.encrypted_content,m.nonce,m.key_version,m.payload_version,m.reply_to_message_id::text,m.edited_at,m.deleted_at,m.expires_at<=clock_timestamp(),
+const columns = `m.id::text,m.conversation_id::text,m.sender_id::text,m.type,m.sequence,m.resource_version,m.created_at,m.expires_at,m.encrypted_content,m.nonce,m.key_version,m.payload_version,m.reply_to_message_id::text,m.forwarded_from_message_id::text,m.edited_at,m.deleted_at,m.expires_at<=clock_timestamp(),
  COALESCE((SELECT jsonb_agg(r ORDER BY r.reaction) FROM
  (SELECT reaction,count(*)::text AS count FROM chat.message_reactions WHERE project_id=m.project_id AND conversation_id=m.conversation_id AND message_id=m.id GROUP BY reaction) r),'[]'::jsonb),
  (SELECT jsonb_build_object('message_id',p.message_id,'pinned_by',p.pinned_by,'created_at',p.created_at,'resource_version',m.resource_version::text)
@@ -39,10 +39,10 @@ const columns = `m.id::text,m.conversation_id::text,m.sender_id::text,m.type,m.s
 func (s *Store) scan(project string, row pgx.Row) (message.Message, error) {
 	var m message.Message
 	var e cryptography.Envelope
-	var reply *string
+	var reply, forwarded *string
 	var expired bool
 	var reactions, pin []byte
-	err := row.Scan(&m.ID, &m.ConversationID, &m.SenderID, &m.Type, &m.Sequence, &m.Version, &m.CreatedAt, &m.ExpiresAt, &e.Ciphertext, &e.Nonce, &e.KeyVersion, &e.PayloadVersion, &reply, &m.EditedAt, &m.DeletedAt, &expired, &reactions, &pin)
+	err := row.Scan(&m.ID, &m.ConversationID, &m.SenderID, &m.Type, &m.Sequence, &m.Version, &m.CreatedAt, &m.ExpiresAt, &e.Ciphertext, &e.Nonce, &e.KeyVersion, &e.PayloadVersion, &reply, &forwarded, &m.EditedAt, &m.DeletedAt, &expired, &reactions, &pin)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return m, identity.ErrNotFound
 	}
@@ -82,6 +82,13 @@ func (s *Store) scan(project string, row pgx.Row) (message.Message, error) {
 		return m, cryptography.ErrCrypto
 	}
 	m.Content, m.Metadata = &payload.Content, payload.Metadata
+	m.Forward = payload.Forward
+	// The relational header is cleared when retention physically purges the
+	// source, while the encrypted snapshot deliberately remains self-contained.
+	// A present header must still agree with the authenticated payload.
+	if (forwarded != nil && m.Forward == nil) || (forwarded != nil && *forwarded != m.Forward.MessageID) {
+		return m, cryptography.ErrCrypto
+	}
 	if reply != nil {
 		m.Reply = &message.Reply{MessageID: *reply}
 	}
@@ -185,6 +192,9 @@ func activityAccess(ctx context.Context, tx pgx.Tx, a identity.Actor, conversati
 func (s *Store) Send(ctx context.Context, a identity.Actor, conversation string, p message.Send, system bool) (message.Sent, error) {
 	if err := p.Validate(system); err != nil {
 		return message.Sent{}, err
+	}
+	if p.ForwardFrom != nil {
+		return s.forward(ctx, a, conversation, p)
 	}
 	canonical, err := p.Canonical(conversation)
 	if err != nil {

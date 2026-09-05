@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Universal Chat Service",
-    "version": "0.11.0",
-    "description": "Реализованный Foundation: infrastructure probes, access JWT внешнего Auth, Project-scoped профили, локальные роли user/admin, settings/feature flags и append-only audit. AUTH_MODE=remote: Chat проверяет JWT на каждом запросе через Auth GET /api/v1/users/me без положительного кеша; Auth подтверждает идентичность и действующую сессию. Login/refresh/logout выполняются в Auth, второй токен Chat не нужен. Project задаёт серверный AUTH_PROJECT_ID, роль читает Chat из своей БД; роли Auth/JWT не дают прав. После logout Auth старые access JWT получают Chat 401; недоступность Auth даёт 503 без fallback. Один Auth/Project на экземпляр API. Offline dev-rsa допустим только development/test, без отзыва внешних сессий. Swagger UI на /docs/api, ресурсы локальные. Conversations и memberships реализованы. Messages TEXT/SYSTEM, AES-GCM, blind search, sequence/dedup и transactional outbox реализованы. WebSocket/recovery/checkpoints/presence/typing реализованы. Worker публикует outbox, маршрутизирует Kafka в Redis hints и flush last-seen. Шаг 5.1 реализован: reply references, optimistic edit, soft delete, current-state replay. Остальная Phase 5 и Phase 6–10 ещё не реализованы. Redis limits: 120/IP и 60/Project-user за 60s, fail closed 503. CORS — exact allowlist, без cookies. Application responses содержат X-Request-ID, no-store, nosniff; ошибки net/http до middleware могут иметь иной формат."
+    "version": "0.12.0",
+    "description": "Реализованный Foundation: infrastructure probes, access JWT внешнего Auth, Project-scoped профили, локальные роли user/admin, settings/feature flags и append-only audit. AUTH_MODE=remote: Chat проверяет JWT на каждом запросе через Auth GET /api/v1/users/me без положительного кеша; Auth подтверждает идентичность и действующую сессию. Login/refresh/logout выполняются в Auth, второй токен Chat не нужен. Project задаёт серверный AUTH_PROJECT_ID, роль читает Chat из своей БД; роли Auth/JWT не дают прав. После logout Auth старые access JWT получают Chat 401; недоступность Auth даёт 503 без fallback. Один Auth/Project на экземпляр API. Offline dev-rsa допустим только development/test, без отзыва внешних сессий. Swagger UI на /docs/api, ресурсы локальные. Conversations и memberships реализованы. Messages TEXT/SYSTEM, AES-GCM, blind search, sequence/dedup и transactional outbox реализованы. WebSocket/recovery/checkpoints/presence/typing реализованы. Phase 5.1–5.3 реализованы: reply, edit/delete, reactions/pins и независимый TEXT forward. Шаг 5.4 и Phase 6–10 ещё не реализованы. Redis limits: 120/IP и 60/Project-user за 60s, fail closed 503. CORS — exact allowlist, без cookies. Application responses содержат X-Request-ID, no-store, nosniff; ошибки net/http до middleware могут иметь иной формат."
   },
   "servers": [
     {
@@ -5437,7 +5437,7 @@
           "Messages"
         ],
         "operationId": "sendMessage",
-        "summary": "Atomically commit an encrypted TEXT message",
+        "summary": "Atomically commit an encrypted TEXT message or forward snapshot",
         "security": [
           {
             "BearerAuth": []
@@ -5616,7 +5616,7 @@
             }
           }
         },
-        "description": "Active membership required; Project admin has no bypass. Foreign, left and inaccessible resources return 404. GROUP/DIRECT members may send; CHANNEL requires moderator. Bans prohibit writes. SYSTEM is internal only. SENT follows PostgreSQL commit, independently of Kafka availability. Idempotency is scoped to Project/sender/client_message_id for 365 days: same command returns 200; changed content, metadata, reply target or conversation returns 409 IDEMPOTENCY_CONFLICT. Retained deleted/expired content with a live receipt returns 200 with the same message identity and redacted tombstone; after dedup expiry the ID may create a new message. Reply requires allow_reply and a live same-conversation target; matching retries recheck the flag but do not require the original parent to remain live.",
+        "description": "Active membership required; Project admin has no bypass. Foreign, left and inaccessible resources return 404. GROUP/DIRECT members may send; CHANNEL requires moderator. Bans prohibit writes. SYSTEM is internal only. SENT follows PostgreSQL commit, independently of Kafka availability. Idempotency is scoped to Project/sender/client_message_id for 365 days: same command returns 200; changed content, metadata, reply/forward source or conversation returns 409 IDEMPOTENCY_CONFLICT. Retained deleted/expired content with a live receipt returns 200 with the same message identity and redacted tombstone; after dedup expiry the ID may create a new message. Reply requires allow_reply and a live same-conversation target. Forward requires allow_forward, readable live TEXT source in the same Project and writable target; it creates a separately encrypted content/author snapshot, copies no metadata or relations, and never exposes source conversation. Matching retries recheck their feature flag but do not require the source to remain live.",
         "requestBody": {
           "required": true,
           "content": {
@@ -10929,46 +10929,57 @@
         }
       },
       "MessageSend": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/MessageTextSend"
+          },
+          {
+            "$ref": "#/components/schemas/MessageForwardSend"
+          }
+        ],
+        "description": "Exactly one command shape. Forward cannot include type, content, metadata or reply_to_message_id, even as empty/null fields."
+      },
+      "MessageTextSend": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "client_message_id",
-          "type",
-          "content"
-        ],
+        "required": ["client_message_id", "type", "content"],
         "properties": {
-          "client_message_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "TEXT"
-            ]
-          },
-          "content": {
-            "$ref": "#/components/schemas/MessageContent"
-          },
-          "metadata": {
-            "type": "object",
-            "additionalProperties": true,
-            "description": "Encrypted JSON object, at most 8192 encoded bytes; omitted means {}."
-          },
-          "reply_to_message_id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Optional live message in the same conversation. Requires allow_reply. Omit when unused; null is rejected."
-          }
+          "client_message_id": {"type": "string", "format": "uuid"},
+          "type": {"type": "string", "const": "TEXT"},
+          "content": {"$ref": "#/components/schemas/MessageContent"},
+          "metadata": {"type": "object", "additionalProperties": true, "description": "Encrypted JSON object, at most 8192 encoded bytes; omitted means {}."},
+          "reply_to_message_id": {"type": "string", "format": "uuid", "description": "Optional live message in the same conversation. Requires allow_reply. Omit when unused; null is rejected."}
         },
-        "example": {
-          "client_message_id": "01900000-0000-4000-8000-000000000010",
-          "type": "TEXT",
-          "content": {
-            "text": "Привет!"
-          },
-          "metadata": {}
+        "example": {"client_message_id": "01900000-0000-4000-8000-000000000010", "type": "TEXT", "content": {"text": "Привет!"}, "metadata": {}}
+      },
+      "MessageForwardSend": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["client_message_id", "forwarded_from_message_id"],
+        "properties": {
+          "client_message_id": {"type": "string", "format": "uuid"},
+          "forwarded_from_message_id": {"type": "string", "format": "uuid", "description": "Readable live TEXT message in the same Project; source and target conversations may differ."}
+        },
+        "example": {"client_message_id": "01900000-0000-4000-8000-000000000010", "forwarded_from_message_id": "01900000-0000-4000-8000-000000000004"}
+      },
+      "MessageSenderSnapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "display_name"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "display_name": {"type": "string", "description": "Historical safe display name captured when the first forward is created."}
         }
+      },
+      "MessageForward": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["message_id", "original_sender"],
+        "properties": {
+          "message_id": {"type": "string", "format": "uuid", "description": "Immediate source message. It remains attribution data after source purge."},
+          "original_sender": {"$ref": "#/components/schemas/MessageSenderSnapshot"}
+        },
+        "description": "Encrypted independent provenance snapshot. Source conversation is intentionally absent."
       },
       "Message": {
         "type": "object",
@@ -11031,6 +11042,9 @@
           "reply": {
             "$ref": "#/components/schemas/MessageReply"
           },
+          "forward": {
+            "$ref": "#/components/schemas/MessageForward"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -11059,7 +11073,7 @@
             "$ref": "#/components/schemas/MessagePin"
           }
         },
-        "description": "Authorized current state. Active rows have content; empty metadata may be omitted. Deleted/expired retained rows are tombstones with no content, metadata or reply. Replace the whole client DTO, never merge an omitted body into an older version. Original sender/sequence/TTL remain stable. Reactions and pin share resource_version; relation mutations also invalidate stale edit versions. Terminal messages have reactions=[] and no pin. Features gate writes; existing relation state remains readable.",
+        "description": "Authorized current state. Active rows have content; empty metadata may be omitted. Deleted/expired retained rows are tombstones with no content, metadata, reply or forward. Replace the whole client DTO, never merge an omitted body into an older version. Forward content and original_sender are immutable snapshots independent of source lifecycle; source conversation is never returned. Original target sender/sequence/TTL remain stable. Reactions and pin share resource_version; relation mutations also invalidate stale edit versions. Terminal messages have reactions=[] and no pin. Features gate writes; existing relation state remains readable.",
         "oneOf": [
           {
             "properties": {
@@ -11098,6 +11112,11 @@
                 {
                   "required": [
                     "reply"
+                  ]
+                },
+                {
+                  "required": [
+                    "forward"
                   ]
                 },
                 {

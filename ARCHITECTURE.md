@@ -9,7 +9,8 @@ HTTP identity transport → application interfaces → PostgreSQL repository. В
 Foundation 1.6 завершён: Swagger UI/spec embedded, unit/integration/API acceptance.
 Phase 2–4 реализованы: private conversations/memberships, AES-GCM messages, blind search,
 transactional event log/outbox, Kafka→Redis router, WS/recovery/checkpoints/presence/typing.
-Шаги 5.1–5.2 добавляют reply/edit/delete и отдельные relations reactions/pins (migration 10).
+Шаги 5.1–5.3 добавляют reply/edit/delete, relations reactions/pins и независимо
+зашифрованный TEXT forward (migration 11) с историческим snapshot исходного автора.
 Все изменения message state используют общий resource_version и transactional reference events;
 authorized recovery гидратирует актуальный Message, включая relations или terminal tombstone.
 Точный текущий контракт: [Messages](docs/MESSAGES.md), [Realtime](docs/REALTIME.md).

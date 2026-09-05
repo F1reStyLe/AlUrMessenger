@@ -152,10 +152,12 @@ SYSTEM доступен только отдельному internal use case. Rep
 }
 ```
 
-Forward command взаимоисключён с content/type/attachment_ids/reply; сервер копирует доступный
-источник в новый encrypted payload, проверяет allow_forward и flags результирующего типа.
-Original sender snapshot — только безопасное display_name/идентичность в рамках разрешённого DTO,
-без предоставления получателю доступа к исходному conversation.
+Реализованный в 5.3 Forward command взаимоисключён с content/type/metadata/attachment_ids/reply,
+даже если лишнее поле пустое/null. Сервер копирует доступный живой TEXT-источник в новый encrypted
+payload и blind index, проверяет allow_forward, source read и target write в одном Project.
+Original sender snapshot содержит внутренний user id и безопасное историческое display_name;
+source conversation, metadata, reply/reactions/pin не копируются. Forward не меняется после edit,
+soft delete или физической очистки источника. IMAGE forward остаётся Phase 6, SYSTEM запрещён.
 
 Тот же client_message_id с другим fingerprint → 409 IDEMPOTENCY_CONFLICT, не новая отправка.
 Повтор не обходит текущие права доступа. После физической очистки message dedup tombstone до TTL

@@ -375,3 +375,26 @@ message даёт 404, remove возвращает текущее terminal сос
 Snapshot.pins содержит все live message IDs, включая вне последних 50 messages; GET pins
 возвращает references с единым snapshot_event_sequence. Project/conversation composite FK
 дублируют application boundary; runtime не может UPDATE association owner/reference.
+
+## D38 — Независимый TEXT forward (шаг 5.3)
+
+Статус: принято. Forward — взаимоисключающий вариант общего send command. До commit сервис проверяет
+allow_forward, write access target и read access к живому source внутри Actor Project. Недоступный
+source скрывается как 404; SYSTEM запрещён, IMAGE отложен до attachment lifecycle Phase 6.
+
+Новый target message получает собственные UUID/sequence/sender/TTL, ciphertext/nonce/AAD и search
+index. Из source копируется только TEXT. В authenticated payload сохраняются immediate source ID и
+root original sender `{id,display_name}`; source conversation, metadata, reply, reactions и pin не
+раскрываются и не копируются. Повторный forward сохраняет root attribution. Profile edit, source edit,
+soft delete и physical purge не меняют snapshot. Composite Project FK хранит operational lineage,
+а `ON DELETE SET NULL (forwarded_from_message_id)` очищает только nullable header при purge.
+
+Fingerprint состоит из target conversation, client ID и source message ID. Matching retry повторно
+проверяет target access/allow_forward, но не source: иначе принятый результат перестал бы быть
+идемпотентным после законного удаления источника. Новая команда всё равно требует live source.
+Stored `message.created` остаётся reference-only и добавляет только `forwarded:true`; sensitive body,
+display name и source conversation доступны лишь после current authorization/hydration.
+
+Forward берёт per-Project advisory lock до conversation locks. Это сознательное ограничение MVP:
+редкая операция сериализуется внутри tenant, зато встречные A→B/B→A transactions не создают
+циклический lock order. Обычные send/edit/delete/reaction/pin этот lock не используют.

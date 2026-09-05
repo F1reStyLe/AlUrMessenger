@@ -1,6 +1,6 @@
 # Kafka, changefeed и webhooks
 
-События — versioned факты; source of truth — PostgreSQL. Phase 3–4 и шаги 5.1–5.2 реализуют
+События — versioned факты; source of truth — PostgreSQL. Phase 3–4 и шаги 5.1–5.3 реализуют
 conversation/message/checkpoint events и consumer inbox; остальные события ниже — будущие фазы.
 Machine-readable [AsyncAPI](api/asyncapi/asyncapi.json) описывает действующий Kafka transport.
 HTTP-публикация `/docs/asyncapi` и `/docs/webhooks` будет добавлена с документацией интеграций.
@@ -12,6 +12,9 @@ REST/WS replay дополняет message.created/updated/deleted полем pay
 Шаг 5.2 также добавляет reference-only reaction.created/deleted, message.pinned/unpinned
 с message_id/message_sequence/resource_version. Authorized replay гидратирует для них целый
 current Message с reactions/pin; consumer не применяет исторические relation deltas (D37).
+Forward использует существующий reference-only `message.created`; payload содержит только
+`forwarded:true`, id/type/version/sequence и sender target-сообщения, без текста, snapshot автора
+или идентификатора source conversation. Authorized hydration возвращает текущий forward DTO.
 
 ## Envelope v1
 

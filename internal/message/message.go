@@ -25,19 +25,78 @@ type Content struct {
 type Payload struct {
 	Content  Content        `json:"content"`
 	Metadata map[string]any `json:"metadata"`
+	Forward  *Forward       `json:"forward,omitempty"`
 }
 
 // Send includes no actor identity. HTTP only permits TEXT; SYSTEM is an internal command.
 type Send struct {
-	ClientID string         `json:"client_message_id"`
-	Type     string         `json:"type"`
-	Content  Content        `json:"content"`
-	Metadata map[string]any `json:"metadata,omitempty"`
-	ReplyTo  *string        `json:"reply_to_message_id,omitempty"`
+	ClientID    string         `json:"client_message_id"`
+	Type        string         `json:"type,omitempty"`
+	Content     Content        `json:"content,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+	ReplyTo     *string        `json:"reply_to_message_id,omitempty"`
+	ForwardFrom *string        `json:"forwarded_from_message_id,omitempty"`
+	// Presence flags make forward mutually exclusive even with explicit empty
+	// objects/strings. They are transport input facts and never enter JSON output.
+	hasType, hasContent, hasMetadata, hasReply bool
+}
+
+// MarshalJSON emits the same two disjoint wire shapes accepted by validation.
+// In particular, Go's encoding/json cannot omit a zero-valued struct Content,
+// which would otherwise turn every programmatically built forward into a mixed
+// and therefore invalid command on REST/WS clients and tests.
+func (p Send) MarshalJSON() ([]byte, error) {
+	if p.ForwardFrom != nil {
+		return json.Marshal(struct {
+			ClientID    string `json:"client_message_id"`
+			ForwardFrom string `json:"forwarded_from_message_id"`
+		}{p.ClientID, *p.ForwardFrom})
+	}
+	type normal struct {
+		ClientID string         `json:"client_message_id"`
+		Type     string         `json:"type"`
+		Content  Content        `json:"content"`
+		Metadata map[string]any `json:"metadata,omitempty"`
+		ReplyTo  *string        `json:"reply_to_message_id,omitempty"`
+	}
+	return json.Marshal(normal{p.ClientID, p.Type, p.Content, p.Metadata, p.ReplyTo})
+}
+
+// UnmarshalJSON records which mutually exclusive command fields were present,
+// including explicit null, so both REST and WS enforce the same disjoint shapes.
+func (p *Send) UnmarshalJSON(data []byte) error {
+	type plain Send
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for name := range fields {
+		switch name {
+		case "client_message_id", "type", "content", "metadata", "reply_to_message_id", "forwarded_from_message_id":
+		default:
+			return policy.ErrInvalid
+		}
+	}
+	*p = Send(decoded)
+	_, p.hasType = fields["type"]
+	_, p.hasContent = fields["content"]
+	_, p.hasMetadata = fields["metadata"]
+	_, p.hasReply = fields["reply_to_message_id"]
+	return nil
 }
 
 // Validate bounds both plaintext and metadata before crypto or database work.
 func (p Send) Validate(system bool) error {
+	if p.ForwardFrom != nil {
+		if system || !conversation.ValidID(p.ClientID) || !conversation.ValidID(*p.ForwardFrom) || p.hasType || p.hasContent || p.hasMetadata || p.hasReply || p.Type != "" || p.Content.Text != "" || p.Metadata != nil || p.ReplyTo != nil {
+			return policy.ErrInvalid
+		}
+		return nil
+	}
 	if p.ReplyTo != nil && (system || !conversation.ValidID(*p.ReplyTo)) {
 		return policy.ErrInvalid
 	}
@@ -53,19 +112,44 @@ func (p Send) Validate(system bool) error {
 
 // Canonical has stable map ordering and treats omitted/empty metadata equally.
 func (p Send) Canonical(conversationID string) ([]byte, error) {
+	if p.ForwardFrom != nil {
+		return json.Marshal(struct {
+			ConversationID string `json:"conversation_id"`
+			ClientID       string `json:"client_message_id"`
+			ForwardFrom    string `json:"forwarded_from_message_id"`
+		}{conversationID, p.ClientID, *p.ForwardFrom})
+	}
 	if p.Metadata == nil {
 		p.Metadata = map[string]any{}
 	}
 	return json.Marshal(struct {
-		ConversationID string `json:"conversation_id"`
-		Send
-	}{conversationID, p})
+		ConversationID string         `json:"conversation_id"`
+		ClientID       string         `json:"client_message_id"`
+		Type           string         `json:"type"`
+		Content        Content        `json:"content"`
+		Metadata       map[string]any `json:"metadata,omitempty"`
+		ReplyTo        *string        `json:"reply_to_message_id,omitempty"`
+	}{conversationID, p.ClientID, p.Type, p.Content, p.Metadata, p.ReplyTo})
 }
 
 // Reply is a same-conversation reference, never a copy of the original body.
 // Clients resolve it through authorized Get; deletion cannot leave a stale preview.
 type Reply struct {
 	MessageID string `json:"message_id"`
+}
+
+// SenderSnapshot is copied into the encrypted forward payload. DisplayName is
+// historical attribution; later profile changes do not rewrite existing messages.
+type SenderSnapshot struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+}
+
+// Forward identifies the immediate source and preserves root author attribution.
+// It intentionally omits the source conversation, which may be private to recipients.
+type Forward struct {
+	MessageID      string         `json:"message_id"`
+	OriginalSender SenderSnapshot `json:"original_sender"`
 }
 
 // Edit replaces text only. Metadata, reply target, sender and sequence are immutable.
@@ -92,6 +176,7 @@ type Message struct {
 	Content        *Content       `json:"content,omitempty"`
 	Metadata       map[string]any `json:"metadata,omitempty"`
 	Reply          *Reply         `json:"reply,omitempty"`
+	Forward        *Forward       `json:"forward,omitempty"`
 	Status         string         `json:"status"`
 	Sequence       int64          `json:"sequence,string"`
 	Version        int64          `json:"resource_version,string"`

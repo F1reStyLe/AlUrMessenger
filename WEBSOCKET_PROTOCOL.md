@@ -1,8 +1,8 @@
 # WebSocket protocol v1
 
-Endpoint `/ws`, subprotocol `chat.v1`, production только WSS. Реализация Phase 4/5.1–5.2 и её
+Endpoint `/ws`, subprotocol `chat.v1`, production только WSS. Реализация Phase 4/5.1–5.3 и её
 точные пределы описаны в [docs/REALTIME.md](docs/REALTIME.md); этот документ также содержит
-целевые команды будущих фаз (forward/bot credentials).
+целевые команды будущих фаз (bot credentials).
 Текущие ephemeral события — presence.state/typing.state с полной заменой наблюдаемого
 состояния вместо online/offline и started/stopped дельт. Presence watch ограничен 100 IDs.
 Domain errors, DTO и flags совпадают с [REST](API_DESIGN.md); события — [EVENTS.md](EVENTS.md).
@@ -64,7 +64,7 @@ code/message/details/request_id. Ошибка не создаёт успешно
 | auth | access_token или bot_api_key (ровно один), device_id | auth.ok; только до auth |
 | conversation.subscribe | conversation_id, after_event_sequence? | ack + replay/sync.complete; active membership |
 | conversation.unsubscribe | conversation_id | ack; удаляет локальную подписку, не membership |
-| message.send | MessageCommand из REST | ack.message содержит id/sequence/status=SENT после commit; client_message_id обязателен |
+| message.send | TEXT/reply или взаимоисключающий forward command из REST | ack.message содержит id/sequence/status=SENT после commit; client_message_id обязателен |
 | message.delivered | sequence | ack checkpoint; max(old,new), membership, explicit client receipt |
 | message.read | sequence | ack checkpoint, read_receipts; монотонный READ также обновляет delivered |
 | message.edit | message_id, content, expected_version | ack; автор, allow_edit; version conflict защищает от потерянного update |

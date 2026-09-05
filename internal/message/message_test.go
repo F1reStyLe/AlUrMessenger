@@ -33,6 +33,46 @@ func TestLegacyFingerprintAndReplyIdentity(t *testing.T) {
 	}
 }
 
+// A forward is a command, not user-supplied copied content. Its compact
+// canonical form binds idempotency to both the target conversation and source.
+func TestForwardValidationAndFingerprint(t *testing.T) {
+	source := uuid.NewString()
+	p := Send{ClientID: uuid.NewString(), ForwardFrom: &source}
+	if err := p.Validate(false); err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.Canonical("target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"conversation_id":"target","client_message_id":"` + p.ClientID + `","forwarded_from_message_id":"` + source + `"}`
+	if string(got) != want {
+		t.Fatalf("unexpected canonical command: %s", got)
+	}
+	if err := p.Validate(true); err == nil {
+		t.Fatal("internal SYSTEM forward accepted")
+	}
+
+	for _, body := range []string{
+		`{"client_message_id":"` + p.ClientID + `","forwarded_from_message_id":"` + source + `","type":""}`,
+		`{"client_message_id":"` + p.ClientID + `","forwarded_from_message_id":"` + source + `","content":{}}`,
+		`{"client_message_id":"` + p.ClientID + `","forwarded_from_message_id":"` + source + `","metadata":{}}`,
+		`{"client_message_id":"` + p.ClientID + `","forwarded_from_message_id":"` + source + `","reply_to_message_id":null}`,
+	} {
+		var decoded Send
+		if err := json.Unmarshal([]byte(body), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		if err := decoded.Validate(false); err == nil {
+			t.Fatal("mixed forward command accepted:", body)
+		}
+	}
+	var decoded Send
+	if err := json.Unmarshal([]byte(`{"client_message_id":"`+p.ClientID+`","forwarded_from_message_id":"`+source+`","unknown":true}`), &decoded); err == nil {
+		t.Fatal("unknown command field accepted")
+	}
+}
+
 // JSON must omit the body entirely for tombstones; an empty text object can be
 // mistaken for an edit and metadata/reply previews could disclose removed content.
 func TestTombstoneJSON(t *testing.T) {
@@ -43,7 +83,7 @@ func TestTombstoneJSON(t *testing.T) {
 	}
 	var fields map[string]any
 	json.Unmarshal(data, &fields)
-	for _, key := range []string{"content", "metadata", "reply"} {
+	for _, key := range []string{"content", "metadata", "reply", "forward"} {
 		if _, exists := fields[key]; exists {
 			t.Fatal("tombstone field", key)
 		}

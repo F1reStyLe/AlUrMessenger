@@ -1,4 +1,4 @@
-# Messages — реализованный контракт Phase 3 и шагов 5.1–5.2
+# Messages — реализованный контракт Phase 3 и шагов 5.1–5.3
 
 REST: POST/GET `/api/v1/conversations/{id}/messages`, GET/PATCH/DELETE `/api/v1/messages/{id}`,
 GET `/api/v1/conversations/{id}/search`. Точные схемы и ошибки — в OpenAPI.
@@ -78,7 +78,7 @@ content, когда он отсутствует в tombstone. Event cursor и re
 
 Миграция 9 добавляет reply reference, edited_at и только необходимые UPDATE grants.
 Runtime по-прежнему не может менять sender/sequence/TTL, переписывать event log или физически
-удалять message. Forward остаётся шагом 5.3; IMAGE — Phase 6.
+удалять message. TEXT forward описан ниже; IMAGE — Phase 6.
 
 ## Реакции и закрепления — 5.2
 
@@ -112,3 +112,24 @@ GET/history/search/snapshot/replay возвращают current reactions/pin. M
 Snapshot.pins содержит все live message IDs, даже вне 50 recent messages. При replay клиент
 заменяет Message целиком и добавляет/удаляет ID в pin collection по текущему message.pin/status,
 а не по историческому имени события. GET pins даёт watermark для согласования полной коллекции.
+
+## Пересылка TEXT — 5.3
+
+Тот же REST POST и WS `message.send` принимают отдельную форму
+`{client_message_id,forwarded_from_message_id}`. Она не смешивается с type/content/metadata/reply,
+включая явно пустые поля. Нужны allow_forward, read access к живому source и write access к target;
+оба conversation/message обязаны принадлежать Actor Project. Недоступный, удалённый или истёкший
+источник скрывается как 404. SYSTEM не пересылается, IMAGE будет реализован вместе с attachments.
+
+Target получает новый UUID/sequence/sender/TTL, новый AES-GCM nonce/AAD и собственный blind index.
+Encrypted payload содержит копию TEXT и `{message_id,original_sender:{id,display_name}}`.
+При повторной пересылке сохраняется root original_sender, а message_id указывает на непосредственный
+source. Source conversation не выдаётся. Metadata, reply, reactions и pin не копируются.
+Изменение или удаление source не меняет forward; physical purge очищает только nullable FK header,
+а authenticated snapshot остаётся читаемым. Soft delete самого forward удаляет и его snapshot.
+
+Source ID и target conversation входят в HMAC fingerprint. Matching retry возвращает текущий target
+message, повторно проверяя target permissions и allow_forward, но уже не зависит от source lifecycle.
+Stored `message.created` остаётся reference-only и содержит лишь `forwarded:true`; body и attribution
+появляются только при authorized hydration. Cross-conversation forward transaction сериализуется
+per-Project advisory lock, чтобы встречные пересылки не образовали lock-order deadlock.

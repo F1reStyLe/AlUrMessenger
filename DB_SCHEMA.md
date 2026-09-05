@@ -65,7 +65,8 @@ conversation, не создаёт две пары. Ровно два разны�
 membership обновляется отдельными use cases. Hard-delete pair не открывает путь к дубликату.
 
 reply_to FK относится к тому же conversation. Forward provenance — nullable FK внутри Project:
-при физическом удалении источника ссылка обнуляется в cleanup transaction, snapshot сохраняется.
+при физическом удалении источника `ON DELETE SET NULL (forwarded_from_message_id)` обнуляет только
+nullable header, не обязательный project_id; encrypted content/author snapshot сохраняется.
 Сведения о приватном исходном conversation не раскрываются получателю forward. Reply/pin/last_message
 references также обновляются до физического удаления. Последний message пересчитывается без expired/deleted.
 

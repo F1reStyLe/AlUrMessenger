@@ -1,4 +1,4 @@
-# Реализованный WebSocket и recovery — Phase 4 и шаги 5.1–5.2
+# Реализованный WebSocket и recovery — Phase 4 и шаги 5.1–5.3
 
 `GET /ws`, subprotocol `chat.v1`. TLS завершается на production ingress; публично только WSS.
 Exact Origin allowlist общий с REST. Отсутствие Origin запрещено, кроме явного
@@ -23,7 +23,7 @@ Authenticated envelope: type, request_id, conversation_id, payload.
 | --- | --- | --- |
 | conversation.subscribe | after_event_sequence, строка, default "0" | ack, reference events ASC, sync.complete |
 | conversation.unsubscribe | {} | ack; membership не меняется |
-| message.send | REST MessageSend: client_message_id, type TEXT, content, metadata?, reply_to_message_id? | ack с MessageSent после commit |
+| message.send | REST MessageSend: TEXT/reply либо отдельный client_message_id + forwarded_from_message_id | ack с MessageSent после commit |
 | message.edit | message_id, content, expected_version (строка) | ack с текущим Message; VERSION_CONFLICT при старой версии |
 | message.delete | message_id | ack с tombstone; повтор не меняет version |
 | reaction.add / reaction.remove | message_id, reaction | ack с текущим Message/reactions/version; повтор не создаёт событие |
@@ -31,7 +31,7 @@ Authenticated envelope: type, request_id, conversation_id, payload.
 | typing.start / typing.stop | {} | ack, TTL 5s; CHANNEL moderator only |
 | presence.watch | user_ids: UUID[], до 100 | ack со статусами; нужна подписка на conversation |
 
-Forward — шаг 5.3, IMAGE — Phase 6. Pins меняются через REST и распространяются через WS events.
+TEXT forward реализован как вариант message.send; IMAGE — Phase 6. Pins меняются через REST и распространяются через WS events.
 Reactions требуют allow_reactions, active membership и отсутствие bans; CHANNEL reader разрешён.
 Edit/delete требуют автора, текущего права записи и allow_edit/allow_delete; reply — allow_reply.
 Message ID обязан принадлежать conversation из envelope, проверка выполняется до mutation.

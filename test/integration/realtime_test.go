@@ -397,6 +397,29 @@ func testRealtime(t *testing.T, clients *infrastructure.Clients, op *pgx.Conn) {
 		t.Fatal(e)
 	}
 	receive(bob, "message.created")
+	// Phase 5.3 uses the existing REST/WS send surfaces. Both acknowledge and
+	// cross-instance delivery expose only the authorized independent snapshot.
+	forwardCommand := message.Send{ClientID: uuid.NewString(), ForwardFrom: &relationSent.Message.ID}
+	data, _ = json.Marshal(forwardCommand)
+	var restForward message.Sent
+	if e := json.Unmarshal(request("POST", collection+"/messages", string(data), 201), &restForward); e != nil || restForward.Message.Forward == nil || restForward.Message.Content == nil || restForward.Message.Content.Text != "relationwire" {
+		t.Fatal("REST forward", e)
+	}
+	forwardEvent := receive(bob, "message.created")
+	var forwardState struct {
+		Message message.Message `json:"message"`
+	}
+	if e := json.Unmarshal(forwardEvent.Payload, &forwardState); e != nil || forwardState.Message.Forward == nil || forwardState.Message.Forward.MessageID != relationSent.Message.ID {
+		t.Fatal("forward event hydration", e)
+	}
+	wsForward := message.Send{ClientID: uuid.NewString(), ForwardFrom: &restForward.Message.ID}
+	command(alice, "message.send", wsForward)
+	forwardAck := receive(alice, "ack")
+	var wsForwarded message.Sent
+	if e := json.Unmarshal(forwardAck.Payload, &wsForwarded); e != nil || wsForwarded.Message.Forward == nil || wsForwarded.Message.Forward.MessageID != restForward.Message.ID {
+		t.Fatal("WS forward", e)
+	}
+	receive(bob, "message.created")
 	relationPath := "/api/v1/messages/" + relationSent.Message.ID
 	reactionPath := relationPath + "/reactions/" + neturl.PathEscape("❤")
 	request("PUT", reactionPath, "", 200)
