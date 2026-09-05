@@ -51,7 +51,7 @@ func adminTx(ctx context.Context, tx pgx.Tx, actor identity.Actor) error {
 	return nil
 }
 
-func audit(ctx context.Context, tx pgx.Tx, actor identity.Actor, action, id string, trace policy.Trace, fields map[string]any) error {
+func audit(ctx context.Context, tx pgx.Tx, actor identity.Actor, action, resourceType, id string, trace policy.Trace, fields map[string]any) error {
 	auditID, err := uuid.NewV7()
 	if err != nil {
 		return err
@@ -61,7 +61,7 @@ func audit(ctx context.Context, tx pgx.Tx, actor identity.Actor, action, id stri
 		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO chat.audit_logs(id,project_id,actor_id,actor_type,action,resource_type,resource_id,metadata,ip,request_id)
- VALUES($1,$2,$3,'user',$4,'blacklist_entry',$5,$6,NULLIF($7,'')::inet,$8)`, auditID.String(), actor.ProjectID, actor.User.ID, action, id, metadata, trace.IP, trace.RequestID)
+ VALUES($1,$2,$3,'user',$4,$5,$6,$7,NULLIF($8,'')::inet,$9)`, auditID.String(), actor.ProjectID, actor.User.ID, action, resourceType, id, metadata, trace.IP, trace.RequestID)
 	return err
 }
 
@@ -124,7 +124,7 @@ func (s *Store) Create(ctx context.Context, actor identity.Actor, word string, t
 	if err != nil {
 		return moderation.Entry{}, err
 	}
-	if err = audit(ctx, tx, actor, "blacklist.created", result.ID, trace, map[string]any{"enabled": true}); err != nil {
+	if err = audit(ctx, tx, actor, "blacklist.created", "blacklist_entry", result.ID, trace, map[string]any{"enabled": true}); err != nil {
 		return moderation.Entry{}, err
 	}
 	return result, tx.Commit(ctx)
@@ -150,7 +150,7 @@ func (s *Store) Update(ctx context.Context, actor identity.Actor, id string, pat
 	if err != nil {
 		return moderation.Entry{}, err
 	}
-	if err = audit(ctx, tx, actor, "blacklist.updated", id, trace, map[string]any{"changed_fields": []string{"enabled"}}); err != nil {
+	if err = audit(ctx, tx, actor, "blacklist.updated", "blacklist_entry", id, trace, map[string]any{"changed_fields": []string{"enabled"}}); err != nil {
 		return moderation.Entry{}, err
 	}
 	return result, tx.Commit(ctx)
@@ -172,7 +172,7 @@ func (s *Store) Delete(ctx context.Context, actor identity.Actor, id string, tra
 	if tag.RowsAffected() != 1 {
 		return identity.ErrNotFound
 	}
-	if err = audit(ctx, tx, actor, "blacklist.deleted", id, trace, map[string]any{}); err != nil {
+	if err = audit(ctx, tx, actor, "blacklist.deleted", "blacklist_entry", id, trace, map[string]any{}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

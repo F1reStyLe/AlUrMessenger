@@ -139,7 +139,11 @@ func derived(master []byte, project, purpose, version string) ([]byte, error) {
 
 // aead uses AES-256-GCM; a missing retained key fails closed rather than reading garbage.
 func (k *Keys) aead(project, version string) (cipher.AEAD, error) {
-	key, err := derived(k.encryption[version], project, "message", version)
+	return k.aeadPurpose(project, "message", version)
+}
+
+func (k *Keys) aeadPurpose(project, purpose, version string) (cipher.AEAD, error) {
+	key, err := derived(k.encryption[version], project, purpose, version)
 	if err != nil {
 		return nil, ErrCrypto
 	}
@@ -148,6 +152,37 @@ func (k *Keys) aead(project, version string) (cipher.AEAD, error) {
 		return nil, ErrCrypto
 	}
 	return cipher.NewGCM(block)
+}
+
+func purposeAAD(purpose, project, resource, version string, payloadVersion int) []byte {
+	b, _ := json.Marshal([]any{purpose, project, resource, version, payloadVersion})
+	return b
+}
+
+// SealReport uses a separate derived key and AAD namespace from message bodies.
+func (k *Keys) SealReport(project, report string, plain []byte) (Envelope, error) {
+	version := k.activeEncryption
+	a, err := k.aeadPurpose(project, "report", version)
+	if err != nil {
+		return Envelope{}, err
+	}
+	nonce := make([]byte, a.NonceSize())
+	if _, err = rand.Read(nonce); err != nil {
+		return Envelope{}, ErrCrypto
+	}
+	return Envelope{a.Seal(nil, nonce, plain, purposeAAD("report", project, report, version, 1)), nonce, version, 1}, nil
+}
+
+func (k *Keys) OpenReport(project, report string, envelope Envelope) ([]byte, error) {
+	a, err := k.aeadPurpose(project, "report", envelope.KeyVersion)
+	if err != nil || envelope.PayloadVersion != 1 || len(envelope.Nonce) != a.NonceSize() {
+		return nil, ErrCrypto
+	}
+	plain, err := a.Open(nil, envelope.Nonce, envelope.Ciphertext, purposeAAD("report", project, report, envelope.KeyVersion, envelope.PayloadVersion))
+	if err != nil {
+		return nil, ErrCrypto
+	}
+	return plain, nil
 }
 
 // aad is unambiguous structured context, including purpose and both format/key versions.

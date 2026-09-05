@@ -172,6 +172,7 @@ func run(ctx context.Context, service config.Service, output io.Writer) (exitCod
 		conversationhttp.RegisterMembership(server, &conversation.MembershipService{Store: &conversationrepo.Store{DB: clients.Postgres}}, protect)
 		policyhttp.Register(server, &policy.Service{Store: &policyrepo.Store{DB: clients.Postgres}}, protect)
 		moderationhttp.Register(server, &moderation.Service{Store: &moderationrepo.Store{DB: clients.Postgres}}, protect)
+		moderationhttp.RegisterReports(server, &moderation.ReportService{Store: &moderationrepo.Reports{DB: clients.Postgres, Crypto: contentKeys}}, protect)
 		apidocs.Register(server)
 		hub := realtime.NewHub()
 		gateway := &realtime.Gateway{Hub: hub, Identity: identities, Messages: messages, Recovery: recovery, Conversations: conversations, Presence: &realtime.Presence{DB: clients.Postgres, Redis: clients.Redis}, Limiter: limiter, AllowNoOrigin: allowNoOrigin}

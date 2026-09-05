@@ -40,6 +40,30 @@ func TestEnvelopeIsolation(t *testing.T) {
 	}
 }
 
+// TestReportEnvelopeIsolation proves that moderation descriptions cannot be
+// substituted between reports or opened through the message-key namespace.
+func TestReportEnvelopeIsolation(t *testing.T) {
+	cfg, _ := Generate()
+	keys, _ := New(cfg)
+	envelope, err := keys.SealReport("p", "r", []byte("private complaint"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := keys.OpenReport("p", "r", envelope)
+	if err != nil || string(plain) != "private complaint" {
+		t.Fatal("report roundtrip failed", err)
+	}
+	if _, err = keys.OpenReport("p", "other", envelope); err == nil {
+		t.Fatal("cross-report substitution accepted")
+	}
+	if _, err = keys.OpenReport("other", "r", envelope); err == nil {
+		t.Fatal("cross-Project substitution accepted")
+	}
+	if _, err = keys.Open("p", "conversation", "r", envelope); err == nil {
+		t.Fatal("report ciphertext opened as a message")
+	}
+}
+
 // TestRotation keeps historical reads/search/retry receipts valid while all new
 // writes switch to distinct active versions; removing an old key fails closed.
 func TestRotation(t *testing.T) {

@@ -69,6 +69,11 @@ sequence/ciphertext/index/outbox mutation. NFC + Unicode case folding и whole l
 исключают case bypass; substring сознательно не блокируется. 422 и audit не содержат matched word
 или message content. Human, bot, internal SYSTEM, IMAGE caption, edit и forward используют один gate.
 
+Report description 7.2 шифруется отдельным HKDF purpose `report` и AAD с Project/report/version,
+не индексируется и не попадает в audit, logs или transport errors. Reporter видит только свой
+safe DTO; Project admin читает review DTO. Создание повторно проверяет human/global ban и для
+message target — live membership; review повторно проверяет актуальные admin/ban данные в transaction.
+
 Запрет записи не мешает heartbeat, reconnect и ранее разрешённому чтению. Смена роли/moderation
 синхронизируется через общий transaction lock protocol, а не только через кеш.
 

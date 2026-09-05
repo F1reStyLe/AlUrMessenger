@@ -208,6 +208,7 @@ func TestInfrastructureLifecycle(t *testing.T) {
 	t.Run("attachment-upload", func(t *testing.T) { testAttachmentUpload(t, clients, migrator) })
 	t.Run("phase6-audit", func(t *testing.T) { testPhase6Audit(t, clients, migrator) })
 	t.Run("blacklist", func(t *testing.T) { testBlacklist(t, clients, migrator) })
+	t.Run("reports", func(t *testing.T) { testReports(t, clients, migrator) })
 	t.Run("realtime", func(t *testing.T) { testRealtime(t, clients, migrator) })
 	// Storage owns a fresh deadline: the Kafka budget must not expire while the
 	// independent realtime scenario exercises reconnect, expiry and Redis outages.

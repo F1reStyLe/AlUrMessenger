@@ -456,3 +456,26 @@ mutations. Он общий для human/bot/internal SYSTEM, TEXT, IMAGE caption
 возвращает только CONTENT_REJECTED и ничего не пишет в message/search/outbox. Matching send retry
 не является новой записью content и возвращает прежний receipt. CRUD Project-admin-only,
 tenant-scoped, versioned; audit намеренно не хранит normalized word.
+
+## D43 — Encrypted report evidence и конечный review workflow (шаг 7.2)
+
+Статус: принято. Жалоба является самостоятельным Project resource с ровно одним target: live
+доступное message либо non-system user. Создавать её может только текущий human без global ban;
+message требует active/unbanned conversation membership. Optional conversation у user report
+подтверждает обе active membership, но не обязателен для Project-scoped user target.
+
+Description шифруется application provider с отдельным derived purpose `report` и AAD, включающим
+Project/report/key/payload versions. Plaintext не индексируется, не журналируется и не включается
+в audit/event metadata. Public endpoint возвращает reporter-safe DTO; admin queue возвращает
+reviewer fields. Evidence, target и reporter runtime-immutable, DELETE отсутствует.
+Message target хранит retained `reported_message_id` отдельно от nullable live FK: retention
+обнуляет ссылку на content row, но не уничтожает безопасную идентичность предмета жалобы.
+
+State machine единственная: OPEN→REVIEWING→RESOLVED или REJECTED. expected_version и row lock
+предотвращают lost update; terminal state неизменяем и только он содержит reviewed_by/at, что
+дополнительно обеспечивает DB CHECK. Banned admin сохраняет read-only queue access, но mutation
+повторно проверяет current Project/admin/ban под Project-first lock и фиксирует content-free audit.
+
+Текущий outbox намеренно не расширен суррогатным conversation ID: он гарантирует порядок только
+conversation aggregates. `report.created/updated` остаются заявленным contract и будут подключены
+через generic aggregate outbox/event_streams при окончательной фиксации integration contracts 8.5.

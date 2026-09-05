@@ -173,9 +173,9 @@ soft delete или физической очистки источника. IMAGE
 | POST `/api/v1/attachments` | multipart image → Attachment ready | **Реализовано 6.1**: ровно один file; membership не требуется до attach; human/bot с allow_images, effective size/MIME/extension/magic/full decoder/container validation |
 | GET `/api/v1/attachments/{id}` | → safe metadata | **Реализовано 6.2**: uploader пока unattached, иначе current membership доступного live message |
 | POST `/api/v1/attachments/{id}/download-url` | → url, expires_at | **Реализовано 6.2**: повторная authorization, private capability 60 секунд; допустима banned read-only |
-| POST `/api/v1/messages/{id}/reports` | reason, description → Report | Доступный message, незаблокированный human |
-| POST `/api/v1/users/{id}/reports` | reason, description, conversation_id? → Report | Тот же Project, незаблокированный human; target/reference проверяются |
-| GET `/api/v1/reports/{id}` | → own Report status | Reporter или admin; без внутренних review details для reporter |
+| POST `/api/v1/messages/{id}/reports` | reason, description → Report | **Реализовано 7.2:** доступный live message, active membership, незаблокированный human |
+| POST `/api/v1/users/{id}/reports` | reason, description, conversation_id? → Report | **Реализовано 7.2:** тот же Project, незаблокированный human; optional reference проверяет обе membership |
+| GET `/api/v1/reports/{id}` | → own Report status | **Реализовано 7.2:** reporter или admin; reporter-safe DTO без review details |
 
 Download URL не логируется/не кешируется shared cache, TTL ≤ 60 секунд. Удаление/leave не отзывает
 уже выданный URL мгновенно. Upload binary не проходит через WS/JSON и не хранится в PostgreSQL.
@@ -193,7 +193,7 @@ context, ключи серверного шифрования или глоба�
 | Users | GET `/admin/v1/users`, GET `/admin/v1/users/{id}`, PUT/DELETE `/admin/v1/users/{id}/ban` |
 | Conversations | GET `/admin/v1/conversations`, GET `/admin/v1/conversations/{id}`, GET `/admin/v1/conversations/{id}/messages`; CHANNEL фильтруется type |
 | Moderation | DELETE `/admin/v1/messages/{id}` с reason; обычный moderator использует DELETE `/api/v1/conversations/{id}/moderation/messages/{message_id}` с reason |
-| Reports | GET `/admin/v1/reports`, GET/PATCH `/admin/v1/reports/{id}`; transitions OPEN→REVIEWING→RESOLVED/REJECTED |
+| Reports | **Реализовано 7.2:** GET `/admin/v1/reports`, GET/PATCH `/admin/v1/reports/{id}`; OPEN→REVIEWING→RESOLVED/REJECTED, optimistic version |
 | Blacklist | **Реализовано 7.1**: GET/POST `/admin/v1/blacklist`, PATCH/DELETE `/admin/v1/blacklist/{id}`; blacklist_enabled/reject в Project settings |
 | API keys | GET/POST `/admin/v1/api-keys`, POST `/admin/v1/api-keys/{id}/revoke`, POST `/admin/v1/api-keys/{id}/rotate`; secret только в create/rotate response |
 | Flags/settings | GET/PATCH `/admin/v1/project`, GET/PATCH `/admin/v1/feature-flags`; expected_version для updates |

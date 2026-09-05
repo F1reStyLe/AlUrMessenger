@@ -92,7 +92,7 @@ Message attach и pending_delete синхронизируются lock объе�
 | Таблица | Основные поля | Constraints / индексы |
 | --- | --- | --- |
 | blacklist_entries | id, project_id, normalized_word, enabled, resource_version, created_by, created_at, updated_at | UNIQUE(project_id,id), UNIQUE(project_id,normalized_word); NFC/case-folded whole-word reject; versioned enable |
-| reports | id, project_id, reporter_id, target_user_id, message_id, conversation_id, reason, description, status OPEN/REVIEWING/RESOLVED/REJECTED, reviewed_by, reviewed_at, created_at | CHECK есть target_user_id или message_id; composite FK и target consistency; index(project_id,status,created_at,id) |
+| reports | id, project_id, reporter_id, target_user_id, message_id nullable live FK, reported_message_id retained, conversation_id, reason, encrypted_description/nonce/key_version/payload_version, status/resource_version, reviewed_by/at, timestamps | Реализовано schema 15: ровно user или message target; tenant FK; delete message обнуляет только live link; terminal reviewer CHECK; immutable evidence/target |
 | audit_logs | id, project_id, actor_id, actor_type, action, resource_type, resource_id, metadata, ip, request_id, created_at | index(project_id,created_at DESC,id); append-only application access |
 | webhook_subscriptions | id, project_id, url, encrypted_secret, secret_key_version, enabled, subscribed_events, created_at, updated_at | index(project_id,enabled); URL allow/deny policy до сохранения и на каждой доставке |
 | webhook_deliveries | id, project_id, subscription_id, event_id, canonical_body, state, attempts, next_attempt_at, lease_until, created_at, delivered_at | UNIQUE(project_id,subscription_id,event_id); index(state,next_attempt_at); body только content-free event |

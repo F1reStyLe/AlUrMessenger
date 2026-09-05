@@ -77,6 +77,10 @@ aggregate остаётся pending, ошибка видна в structured logs/�
 | project.settings.updated | project | settings_version, changed flag names |
 | user.online / offline | user | observed_at, last_seen_at; observation, не durable presence truth |
 
+REST workflow reports реализован в 7.2, но текущий outbox физически conversation-scoped. Поэтому
+report rows и review audit уже durable, а Kafka `report.*` не имитируется частичной публикацией:
+generic aggregate outbox/event_streams вводится и проверяется вместе с contract freeze 8.5.
+
 Последние два presence события экспортируются только при включённых presence и соответствующих
 подписках. Redis edge observer создаёт outbox record; запись в Redis и PostgreSQL не является
 одной транзакцией. Presence observations могут быть пропущены/устареть: не обещать полный журнал
