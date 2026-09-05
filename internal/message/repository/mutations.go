@@ -143,6 +143,13 @@ func (s *Store) Delete(ctx context.Context, a identity.Actor, id, scope string) 
 		return message.Message{}, err
 	}
 	if !terminal {
+		// Deletion invalidates relation state in the same transaction and event.
+		// Old reaction/pin events hydrate this tombstone rather than applying deltas.
+		for _, table := range []string{"message_reactions", "pinned_messages"} {
+			if _, err = tx.Exec(ctx, "DELETE FROM chat."+table+" WHERE project_id=$1 AND conversation_id=$2 AND message_id=$3", a.ProjectID, conversation, id); err != nil {
+				return message.Message{}, err
+			}
+		}
 		if _, err = tx.Exec(ctx, `UPDATE chat.messages SET encrypted_content=''::bytea,reply_to_message_id=NULL,
  deleted_at=clock_timestamp(),resource_version=resource_version+1 WHERE project_id=$1 AND id=$2`, a.ProjectID, id); err != nil {
 			return message.Message{}, err

@@ -3,7 +3,7 @@
   "info": {
     "title": "Universal Chat committed events",
     "version": "1.0.0",
-    "description": "Phase 3–5.1 reference-only Kafka events; authorized WS/REST hydration is documented separately in docs/REALTIME.md."
+    "description": "Phase 3–5.2 reference-only Kafka events; current message/relation state is hydrated only by authorized HTTP/WS replay."
   },
   "defaultContentType": "application/json",
   "servers": {
@@ -51,7 +51,11 @@
                   "message.read",
                   "message.delivered",
                   "message.updated",
-                  "message.deleted"
+                  "message.deleted",
+                  "reaction.created",
+                  "reaction.deleted",
+                  "message.pinned",
+                  "message.unpinned"
                 ]
               },
               "event_version": {
@@ -81,7 +85,7 @@
               },
               "payload": {
                 "type": "object",
-                "description": "References only. message.updated/deleted carry message_id, message_sequence and resource_version as decimal strings. Current decrypted state is added only to authorized REST/WS replay, never to Kafka."
+                "description": "References only. Message and relation mutations carry message_id, message_sequence, resource_version. No body, reaction deltas or pin snapshots are persisted in events. Authorized HTTP/WS replay adds current Message/reactions/pin; Kafka consumers needing state must use an authorized read API."
               }
             }
           }

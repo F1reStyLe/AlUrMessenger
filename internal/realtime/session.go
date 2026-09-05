@@ -368,6 +368,16 @@ func (s *Session) command(ctx context.Context, f Frame) {
 			break
 		}
 		result, err = s.gateway.Messages.Delete(ctx, s.actor, p.MessageID, f.ConversationID)
+	case "reaction.add", "reaction.remove":
+		var p struct {
+			MessageID string `json:"message_id"`
+			Reaction  string `json:"reaction"`
+		}
+		if decode(f.Payload, &p) != nil {
+			err = policy.ErrInvalid
+			break
+		}
+		result, err = s.gateway.Messages.React(ctx, s.actor, p.MessageID, f.ConversationID, p.Reaction, f.Type == "reaction.add")
 	case "message.read", "message.delivered":
 		var p struct {
 			Sequence *int64 `json:"sequence,string"`
@@ -414,7 +424,7 @@ func (s *Session) command(ctx context.Context, f Frame) {
 	}
 	reply := frame("ack", f.RequestID, f.ConversationID, result)
 	reply.PresenceReply = f.Type == "presence.watch"
-	if f.Type == "message.send" || f.Type == "message.edit" || f.Type == "message.delete" {
+	if f.Type == "message.send" || f.Type == "message.edit" || f.Type == "message.delete" || f.Type == "reaction.add" || f.Type == "reaction.remove" {
 		reply.MessageReply = f.Type
 	}
 	c.enqueue(reply)

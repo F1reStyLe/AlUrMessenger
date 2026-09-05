@@ -137,6 +137,7 @@ func TestInfrastructureLifecycle(t *testing.T) {
 	t.Run("conversations", func(t *testing.T) { testConversations(t, pg, migrator, cfg.RedisURL) })
 	t.Run("messages", func(t *testing.T) { testMessages(t, pg, migrator) })
 	t.Run("message-features", func(t *testing.T) { testMessageFeatures(t, pg, migrator) })
+	t.Run("reactions-pins", func(t *testing.T) { testRelations(t, pg, migrator) })
 	adminCfg.AccessKey = "test-root"
 	adminCfg.SecretKey = os.Getenv("ALUR_TEST_MINIO_ADMIN")
 	admin, err := objectstore.Open(adminCfg, cfg.Timeout)

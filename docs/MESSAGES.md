@@ -1,4 +1,4 @@
-# Messages — реализованный контракт Phase 3 и шага 5.1
+# Messages — реализованный контракт Phase 3 и шагов 5.1–5.2
 
 REST: POST/GET `/api/v1/conversations/{id}/messages`, GET/PATCH/DELETE `/api/v1/messages/{id}`,
 GET `/api/v1/conversations/{id}/search`. Точные схемы и ошибки — в OpenAPI.
@@ -78,4 +78,37 @@ content, когда он отсутствует в tombstone. Event cursor и re
 
 Миграция 9 добавляет reply reference, edited_at и только необходимые UPDATE grants.
 Runtime по-прежнему не может менять sender/sequence/TTL, переписывать event log или физически
-удалять message. Реакции, pins и forward остаются шагами 5.2–5.3; IMAGE — Phase 6.
+удалять message. Forward остаётся шагом 5.3; IMAGE — Phase 6.
+
+## Реакции и закрепления — 5.2
+
+`PUT/DELETE /api/v1/messages/{id}/reactions/{reaction}` изменяет только реакцию actor.
+В URL передаётся один percent-encoded emoji из Unicode Emoji 16.0; например `❤` и `❤️`
+обозначают одну canonical reaction `❤️`. Family/ZWJ, flags, keycaps, skin tones поддержаны.
+Произвольный текст/несколько emoji/неполная последовательность дают 400 INVALID_REQUEST.
+Нужно active membership, allow_reactions, отсутствие Project/membership ban; CHANNEL reader
+также может реагировать. Bot дополнительно требует allow_bots. Тело запроса не используется.
+Ответ 200 — полный текущий Message, `reactions:[{reaction,count}]`, count как decimal string.
+До 32 разных emoji на сообщение; новые users могут выбрать уже существующий emoji при лимите.
+Превышение — 400. Список users не возвращается; counts — агрегированное состояние.
+
+`GET /api/v1/conversations/{id}/pins` возвращает `{items:[Pin],snapshot_event_sequence}`
+в одном snapshot. Pin содержит message_id, pinned_by, created_at, current resource_version;
+содержимое читается через GET message. Порядок по message sequence, до 100 live pins.
+`PUT .../pins/{message_id}` → 200 Pin; `DELETE .../pins/{message_id}` → 204.
+Изменять pins может только moderator GROUP/CHANNEL с allow_pin; Project admin без moderator
+не имеет обхода, DIRECT pins запрещены (403). Источник обязан быть в том же conversation.
+Flags блокируют writes, но не скрывают existing relations при чтении.
+
+Успешное изменение relation повышает message.resource_version и event cursor; sequence,
+edited_at и content неизменны. Повторы не меняют version/event и не присваивают заново pinned_by.
+Поэтому edit с прежним expected_version конфликтует также после reaction/pin.
+Reaction/pin event и association фиксируются одной transaction; ошибки откатывают оба.
+
+GET/history/search/snapshot/replay возвращают current reactions/pin. Message имеет optional
+`pin:Pin` и обязательный массив reactions (пустой у tombstone). Soft delete очищает associations
+атомарно; deleted/expired read никогда не выдаёт relations, даже через старый created/pinned event.
+Новый add к terminal message даёт 404; remove — no-op после всех permission/flag checks.
+Snapshot.pins содержит все live message IDs, даже вне 50 recent messages. При replay клиент
+заменяет Message целиком и добавляет/удаляет ID в pin collection по текущему message.pin/status,
+а не по историческому имени события. GET pins даёт watermark для согласования полной коллекции.

@@ -334,3 +334,44 @@ expires_at/status, а delete всегда повышает version. Точные
 One сравнивал DB deadline с локальным time.Now(), хотя Batch и backoff использовали DB clock.
 Теперь One также проверяет next_attempt_at через clock_timestamp() в PostgreSQL. Это сохраняет
 единый источник времени для очереди и не меняет порядок событий, backoff или ack contract.
+
+## D37 — Reactions и pins (шаг 5.2)
+
+Статус: принято. Реакции принадлежат authenticated actor: unique(Project,message,user,emoji).
+Все активные human/bot members, включая читателей CHANNEL, могут добавить/снять свою реакцию;
+общие bans, allow_reactions и allow_bots проверяются внутри transaction и на повторах.
+Pins — отдельные rows; только moderator GROUP/CHANNEL, без обхода Project admin и без DIRECT.
+allow_pin блокирует добавление/снятие, но существующее состояние остаётся доступно для чтения.
+
+Один emoji определяется pinned [Unicode Emoji 16.0 data](https://www.unicode.org/Public/emoji/16.0/emoji-test.txt).
+Сгенерированная таблица принимает fully-qualified и перечисленные Unicode presentation aliases,
+нормализует к fully-qualified. Skin tones/ZWJ/flags/keycaps поддержаны, произвольные strings,
+отдельные modifiers, невалидные последовательности и несколько emoji отвергаются. Версия данных
+явна; runtime не обращается к сети. Генератор scripts/generate-emoji.ps1 и Unicode license сохранены.
+Альтернатива range/regexp отвергнута: она не проверяет целостность составных emoji.
+
+Message.reactions — counts по canonical emoji (decimal strings), без неограниченного списка
+users. До 32 разных emoji на сообщение; число users для существующего emoji не ограничивается.
+До 100 live pins на conversation; существующий pin можно повторить при достигнутом лимите.
+Превышение лимитов даёт 400 INVALID_REQUEST. Ограничения обеспечиваются conversation lock.
+Эти защитные пределы ограничивают размеры DTO/snapshot, не являются project feature flags.
+
+Reaction/pin mutations повышают общий message.resource_version, не меняя sequence/edited_at/body.
+Повтор существующего add и отсутствующего remove не создаёт version/event. Поэтому edit с версией
+до reaction/pin получает VERSION_CONFLICT: клиент перечитывает актуальный Message. Это простая
+единая версия для восстановления, без отдельных счётчиков/частичного merge.
+
+События reaction.created/deleted и message.pinned/unpinned — reference-only (message_id,
+message_sequence, resource_version). Вместо целевых исторических delta fields из Phase 0 клиент
+получает актуальный payload.message через authorized replay и заменяет resource целиком.
+Это не изменение опубликованного Kafka event типа: новые типы введены только в 5.2.
+REST реакция и WS ack возвращают полный Message. Pin PUT возвращает Pin, DELETE — 204;
+pin commands остаются REST, WS распространяет events по WEBSOCKET_PROTOCOL.
+
+Soft delete очищает associations в той же transaction, единственное message.deleted
+инвалидирует relations. Старые events тоже гидратируют tombstone, без прежнего relation state.
+Expired messages немедленно скрывают reactions/pin; physical cleanup — Phase 10. Add к terminal
+message даёт 404, remove возвращает текущее terminal состояние без новой версии/события.
+Snapshot.pins содержит все live message IDs, включая вне последних 50 messages; GET pins
+возвращает references с единым snapshot_event_sequence. Project/conversation composite FK
+дублируют application boundary; runtime не может UPDATE association owner/reference.

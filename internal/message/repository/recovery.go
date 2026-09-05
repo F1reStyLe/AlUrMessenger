@@ -74,7 +74,7 @@ func (s *Store) Replay(ctx context.Context, a identity.Actor, id string, after i
 	// the former body. Keep the historical envelope/version for cursor identity.
 	ids := []string{}
 	for _, e := range result.Events {
-		if e.Type == "message.created" || e.Type == "message.updated" || e.Type == "message.deleted" {
+		if messageStateEvent(e.Type) {
 			messageID, ok := e.Payload["message_id"].(string)
 			if !ok || messageID == "" {
 				return result, message.ErrResync
@@ -102,7 +102,7 @@ func (s *Store) Replay(ctx context.Context, a identity.Actor, id string, after i
 			return result, err
 		}
 		for _, e := range result.Events {
-			if e.Type != "message.created" && e.Type != "message.updated" && e.Type != "message.deleted" {
+			if !messageStateEvent(e.Type) {
 				continue
 			}
 			m, ok := current[e.Payload["message_id"].(string)]
@@ -159,7 +159,25 @@ func (s *Store) Snapshot(ctx context.Context, a identity.Actor, id string) (mess
 		return result, err
 	}
 	slices.Reverse(result.Messages)
+	pins, err := readPins(ctx, tx, a.ProjectID, id)
+	if err != nil {
+		return result, err
+	}
+	for _, pin := range pins {
+		result.Pins = append(result.Pins, pin.MessageID)
+	}
 	return result, tx.Commit(ctx)
+}
+
+// Every message-affecting event hydrates the whole current resource, including
+// reactions and pin. Historical references never act as client-side state deltas.
+func messageStateEvent(kind string) bool {
+	switch kind {
+	case "message.created", "message.updated", "message.deleted", "reaction.created", "reaction.deleted", "message.pinned", "message.unpinned":
+		return true
+	default:
+		return false
+	}
 }
 
 // Receipt uses Project→user→conversation→membership lock order. All members can

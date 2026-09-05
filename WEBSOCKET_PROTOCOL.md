@@ -1,8 +1,8 @@
 # WebSocket protocol v1
 
-Endpoint `/ws`, subprotocol `chat.v1`, production только WSS. Реализация Phase 4/5.1 и её
+Endpoint `/ws`, subprotocol `chat.v1`, production только WSS. Реализация Phase 4/5.1–5.2 и её
 точные пределы описаны в [docs/REALTIME.md](docs/REALTIME.md); этот документ также содержит
-целевые команды будущих фаз (reactions/pins/bot credentials).
+целевые команды будущих фаз (forward/bot credentials).
 Текущие ephemeral события — presence.state/typing.state с полной заменой наблюдаемого
 состояния вместо online/offline и started/stopped дельт. Presence watch ограничен 100 IDs.
 Domain errors, DTO и flags совпадают с [REST](API_DESIGN.md); события — [EVENTS.md](EVENTS.md).
@@ -82,8 +82,8 @@ membership, moderation и upload в MVP выполняются REST; резул�
 | Type | Полезная нагрузка | Sequence / обработка |
 | --- | --- | --- |
 | message.created / updated / deleted | reference + актуальный Message/tombstone | message sequence и event sequence; version-aware upsert |
-| reaction.created / deleted | message_id, user_id, reaction, message_version | durable event sequence; текущее reactions state при recovery |
-| message.pinned / unpinned | message_id, pinned_by, message_version | durable event sequence; current pins |
+| reaction.created / deleted | message_id, message_sequence, resource_version + current payload.message | durable event sequence; полная замена текущего reactions state |
+| message.pinned / unpinned | message_id, message_sequence, resource_version + current payload.message | durable event sequence; pin collection по current message.pin/status |
 | message.delivered / read | user_id, checkpoint, member_version | durable event sequence, без content; монотонный max |
 | conversation.created / updated | Conversation DTO/reference | durable conversation cursor |
 | member.joined / left / updated | user_id, role/status, member_version | durable; событие удаления не даёт доступ к последующему контенту |

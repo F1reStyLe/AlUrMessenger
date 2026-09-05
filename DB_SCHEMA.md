@@ -55,6 +55,11 @@ Project roles admin/user хранятся в users.role; default user, изме�
 | message_reactions | project_id, conversation_id, message_id, user_id, reaction, created_at | PK(project_id,message_id,user_id,reaction); message composite FK включает conversation; normalized Unicode emoji, bounded length |
 | pinned_messages | project_id, conversation_id, message_id, pinned_by, created_at | PK(project_id,conversation_id,message_id); message composite FK; несколько pins |
 
+Миграция 10 реализует message_reactions/pinned_messages. Runtime может INSERT/DELETE,
+но не UPDATE association. Soft delete message очищает обе таблицы в одной transaction.
+Reaction/pin mutations повышают message.resource_version; duplicate commands — no-op.
+Пределы application layer под conversation lock: 32 разных emoji/message, 100 live pins/conversation.
+
 DIRECT creation вставляет canonical pair внутри транзакции. При конфликте получает существующий
 conversation, не создаёт две пары. Ровно два разных human/bot users в пределах Project; group/channel
 membership обновляется отдельными use cases. Hard-delete pair не открывает путь к дубликату.

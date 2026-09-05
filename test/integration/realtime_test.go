@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	neturl "net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -385,6 +386,104 @@ func testRealtime(t *testing.T, clients *infrastructure.Clients, op *pgx.Conn) {
 		res.Body.Close()
 		if res.StatusCode != 204 {
 			t.Fatal("message CORS", res.StatusCode)
+		}
+	}
+	// Phase 5.2: REST associations are visible on the other API; WS reaction
+	// retries share the same uniqueness and current-state recovery contract.
+	relationCommand := message.Send{ClientID: uuid.NewString(), Type: "TEXT", Content: message.Content{Text: "relationwire"}}
+	data, _ = json.Marshal(relationCommand)
+	var relationSent message.Sent
+	if e := json.Unmarshal(request("POST", collection+"/messages", string(data), 201), &relationSent); e != nil {
+		t.Fatal(e)
+	}
+	receive(bob, "message.created")
+	relationPath := "/api/v1/messages/" + relationSent.Message.ID
+	reactionPath := relationPath + "/reactions/" + neturl.PathEscape("❤")
+	request("PUT", reactionPath, "", 200)
+	added := receive(bob, "reaction.created")
+	var relationState struct {
+		Message message.Message `json:"message"`
+	}
+	if e := json.Unmarshal(added.Payload, &relationState); e != nil || len(relationState.Message.Reactions) != 1 || relationState.Message.Reactions[0].Count != 1 {
+		t.Fatal("reaction WS hydration", e)
+	}
+	command(bob, "reaction.add", map[string]string{"message_id": relationSent.Message.ID, "reaction": "❤️"})
+	reactionAck := receive(bob, "ack")
+	var reacted message.Message
+	if e := json.Unmarshal(reactionAck.Payload, &reacted); e != nil || reacted.Version != 3 || reacted.Reactions[0].Count != 2 {
+		t.Fatal("reaction ack", e)
+	}
+	command(bob, "reaction.add", map[string]string{"message_id": relationSent.Message.ID, "reaction": "❤"})
+	reactionAck = receive(bob, "ack")
+	if e := json.Unmarshal(reactionAck.Payload, &reacted); e != nil || reacted.Version != 3 {
+		t.Fatal("reaction retry", e)
+	}
+	command(bob, "reaction.remove", map[string]string{"message_id": relationSent.Message.ID, "reaction": "❤️"})
+	reactionAck = receive(bob, "ack")
+	if e := json.Unmarshal(reactionAck.Payload, &reacted); e != nil || reacted.Reactions[0].Count != 1 {
+		t.Fatal("reaction remove", e)
+	}
+	request("PUT", relationPath+"/reactions/not-emoji", "", 400)
+	if _, e := op.Exec(ctx, "UPDATE chat.project_settings SET flags=jsonb_set(flags,'{allow_reactions}','false') WHERE project_id=$1", project); e != nil {
+		t.Fatal(e)
+	}
+	command(bob, "reaction.add", map[string]string{"message_id": relationSent.Message.ID, "reaction": "👍"})
+	flagError := receive(bob, "error")
+	json.Unmarshal(flagError.Payload, &commandError)
+	if commandError["code"] != "FEATURE_DISABLED" {
+		t.Fatal("WS reaction flag")
+	}
+	request("DELETE", reactionPath, "", 403)
+	if _, e := op.Exec(ctx, "UPDATE chat.project_settings SET flags=jsonb_set(flags,'{allow_reactions}','true') WHERE project_id=$1", project); e != nil {
+		t.Fatal(e)
+	}
+	pinPath := collection + "/pins/" + relationSent.Message.ID
+	var pin message.Pin
+	if e := json.Unmarshal(request("PUT", pinPath, "", 200), &pin); e != nil || pin.MessageID != relationSent.Message.ID {
+		t.Fatal("pin REST", e)
+	}
+	receive(bob, "message.pinned")
+	var pinList message.PinList
+	if e := json.Unmarshal(request("GET", collection+"/pins", "", 200), &pinList); e != nil || len(pinList.Items) != 1 {
+		t.Fatal("pins collection", e)
+	}
+	request("DELETE", pinPath, "", 204)
+	receive(bob, "message.unpinned")
+	request("DELETE", pinPath, "", 204)
+	request("PUT", pinPath, "", 200)
+	receive(bob, "message.pinned")
+	request("DELETE", relationPath, "", 200)
+	receive(bob, "message.deleted")
+	// Old relation events must resolve to the deleted state on reconnect.
+	reconnected := dial(second, bToken)
+	command(reconnected, "conversation.subscribe", map[string]string{"after_event_sequence": "0"})
+	receive(reconnected, "ack")
+	replayedRelation := receive(reconnected, "reaction.created")
+	relationState.Message = message.Message{}
+	if e := json.Unmarshal(replayedRelation.Payload, &relationState); e != nil {
+		t.Fatal(e)
+	}
+	assertTombstone(t, relationState.Message, nil, "deleted")
+	if len(relationState.Message.Reactions) != 0 || relationState.Message.Pin != nil {
+		t.Fatal("reconnected relations resurrected")
+	}
+	reconnected.CloseNow()
+	for _, item := range []string{reactionPath, pinPath} {
+		for _, method := range []string{"PUT", "DELETE"} {
+			req, e := http.NewRequestWithContext(ctx, "OPTIONS", "http"+strings.TrimSuffix(strings.TrimPrefix(first, "ws"), "/ws")+item, nil)
+			if e != nil {
+				t.Fatal(e)
+			}
+			req.Header.Set("Origin", "https://demo.test")
+			req.Header.Set("Access-Control-Request-Method", method)
+			res, e := client.Do(req)
+			if e != nil {
+				t.Fatal(e)
+			}
+			res.Body.Close()
+			if res.StatusCode != 204 {
+				t.Fatal("relations CORS", res.StatusCode)
+			}
 		}
 	}
 	// A disabled flag hides peer receipts without creating a gap in the event sequence.

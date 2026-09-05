@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Universal Chat Service",
-    "version": "0.10.0",
+    "version": "0.11.0",
     "description": "Реализованный Foundation: infrastructure probes, access JWT внешнего Auth, Project-scoped профили, локальные роли user/admin, settings/feature flags и append-only audit. AUTH_MODE=remote: Chat проверяет JWT на каждом запросе через Auth GET /api/v1/users/me без положительного кеша; Auth подтверждает идентичность и действующую сессию. Login/refresh/logout выполняются в Auth, второй токен Chat не нужен. Project задаёт серверный AUTH_PROJECT_ID, роль читает Chat из своей БД; роли Auth/JWT не дают прав. После logout Auth старые access JWT получают Chat 401; недоступность Auth даёт 503 без fallback. Один Auth/Project на экземпляр API. Offline dev-rsa допустим только development/test, без отзыва внешних сессий. Swagger UI на /docs/api, ресурсы локальные. Conversations и memberships реализованы. Messages TEXT/SYSTEM, AES-GCM, blind search, sequence/dedup и transactional outbox реализованы. WebSocket/recovery/checkpoints/presence/typing реализованы. Worker публикует outbox, маршрутизирует Kafka в Redis hints и flush last-seen. Шаг 5.1 реализован: reply references, optimistic edit, soft delete, current-state replay. Остальная Phase 5 и Phase 6–10 ещё не реализованы. Redis limits: 120/IP и 60/Project-user за 60s, fail closed 503. CORS — exact allowlist, без cookies. Application responses содержат X-Request-ID, no-store, nosniff; ошибки net/http до middleware могут иметь иной формат."
   },
   "servers": [
@@ -6341,7 +6341,8 @@
                   "resource_version": "2",
                   "created_at": "2026-08-30T10:00:00Z",
                   "expires_at": "2027-08-30T10:00:00Z",
-                  "deleted_at": "2026-08-30T10:05:00Z"
+                  "deleted_at": "2026-08-30T10:05:00Z",
+                  "reactions": []
                 }
               }
             }
@@ -6480,7 +6481,7 @@
             }
           }
         },
-        "description": "Requires current author membership, allow_delete and no Project/conversation ban; CHANNEL requires moderator. This user API has no admin/moderator bypass and rejects SYSTEM. Wipes ciphertext and search index, recalculates last_message_id and commits message.deleted atomically. Retains identity/sequence/TTL. Repeated deletion returns the same tombstone/version without another event, after current permission and flag checks."
+        "description": "Requires current author membership, allow_delete and no Project/conversation ban; CHANNEL requires moderator. This user API has no admin/moderator bypass and rejects SYSTEM. Wipes ciphertext and search index, recalculates last_message_id and commits message.deleted atomically. Retains identity/sequence/TTL. Repeated deletion returns the same tombstone/version without another event, after current permission and flag checks. Clears reactions and pin in the same transaction; message.deleted hydration invalidates their cached state."
       }
     },
     "/api/v1/conversations/{id}/search": {
@@ -8342,6 +8343,1304 @@
           }
         }
       }
+    },
+    "/api/v1/messages/{id}/reactions/{reaction}": {
+      "parameters": [
+        {
+          "in": "path",
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "in": "path",
+          "name": "reaction",
+          "required": true,
+          "schema": {
+            "maxLength": 128,
+            "example": "❤️",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "put": {
+        "tags": [
+          "Messages"
+        ],
+        "operationId": "addReaction",
+        "summary": "Add own reaction",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "INVALID_REQUEST: invalid UUID/emoji, or add exceeds 32 emoji kinds per message / 100 live pins per conversation. Unicode emoji presentation aliases canonicalize before uniqueness checks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UNAUTHENTICATED: bearer отсутствует/некорректен, Auth отверг просроченную или отозванную сессию/заблокированный аккаунт, либо Project неактивен.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN / USER_BANNED / FEATURE_DISABLED / ORIGIN_FORBIDDEN: actor, moderator, Project feature or Origin policy denies this operation. Current checks apply to retries and removals.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND: отсутствует, другой Project или нет активного membership",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "description": "Unexpected application error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Unexpected application error",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "DEPENDENCY_UNAVAILABLE: недоступны Auth/БД/Redis или ответ Auth некорректен. Доступ не предоставляется, положительный кеш/fallback отсутствуют; клиент не должен удалять действующий токен из-за временного 503.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Message"
+                },
+                "example": {
+                  "type": "TEXT",
+                  "sender_id": "01900000-0000-4000-8000-000000000012",
+                  "id": "01900000-0000-4000-8000-000000000010",
+                  "status": "active",
+                  "resource_version": "2",
+                  "sequence": "1",
+                  "created_at": "2026-09-05T10:00:00Z",
+                  "conversation_id": "01900000-0000-4000-8000-000000000011",
+                  "content": {
+                    "text": "Пример"
+                  },
+                  "reactions": [
+                    {
+                      "reaction": "❤️",
+                      "count": "1"
+                    }
+                  ],
+                  "expires_at": "2027-09-05T10:00:00Z"
+                }
+              }
+            },
+            "description": "Committed current state"
+          }
+        },
+        "description": "Active human/bot member (including CHANNEL reader), allow_reactions, no Project/membership ban, allow_bots for bots. Only the authenticated user association is changed. One Emoji 16.0 RGI sequence in the URL, percent-encoded; explicit unqualified/minimally-qualified aliases canonicalize. Existing add/absent remove leaves version/event unchanged. A change increments message resource_version and commits a reference event atomically; no message sequence or edited_at change. Body is unused. The response is a full current Message, including bounded reaction counts. Deleted/expired messages return 404."
+      },
+      "delete": {
+        "tags": [
+          "Messages"
+        ],
+        "operationId": "removeReaction",
+        "summary": "Remove own reaction",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "INVALID_REQUEST: invalid UUID/emoji, or add exceeds 32 emoji kinds per message / 100 live pins per conversation. Unicode emoji presentation aliases canonicalize before uniqueness checks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UNAUTHENTICATED: bearer отсутствует/некорректен, Auth отверг просроченную или отозванную сессию/заблокированный аккаунт, либо Project неактивен.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN / USER_BANNED / FEATURE_DISABLED / ORIGIN_FORBIDDEN: actor, moderator, Project feature or Origin policy denies this operation. Current checks apply to retries and removals.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND: отсутствует, другой Project или нет активного membership",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "description": "Unexpected application error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Unexpected application error",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "DEPENDENCY_UNAVAILABLE: недоступны Auth/БД/Redis или ответ Auth некорректен. Доступ не предоставляется, положительный кеш/fallback отсутствуют; клиент не должен удалять действующий токен из-за временного 503.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Message"
+                },
+                "example": {
+                  "type": "TEXT",
+                  "sender_id": "01900000-0000-4000-8000-000000000012",
+                  "id": "01900000-0000-4000-8000-000000000010",
+                  "status": "active",
+                  "resource_version": "3",
+                  "sequence": "1",
+                  "created_at": "2026-09-05T10:00:00Z",
+                  "conversation_id": "01900000-0000-4000-8000-000000000011",
+                  "content": {
+                    "text": "Пример"
+                  },
+                  "reactions": [],
+                  "expires_at": "2027-09-05T10:00:00Z"
+                }
+              }
+            },
+            "description": "Committed current state"
+          }
+        },
+        "description": "Active human/bot member (including CHANNEL reader), allow_reactions, no Project/membership ban, allow_bots for bots. Only the authenticated user association is changed. One Emoji 16.0 RGI sequence in the URL, percent-encoded; explicit unqualified/minimally-qualified aliases canonicalize. Existing add/absent remove leaves version/event unchanged. A change increments message resource_version and commits a reference event atomically; no message sequence or edited_at change. Body is unused. The response is a full current Message, including bounded reaction counts. Deleted/expired messages return the current tombstone without a new event."
+      },
+      "options": {
+        "operationId": "reactionPreflight",
+        "tags": [
+          "CORS"
+        ],
+        "summary": "CORS preflight for message GET/PATCH/DELETE",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Preflight accepted, no body. No credential cookies supported.",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Methods": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Headers": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Max-Age": {
+                "schema": {
+                  "type": "integer"
+                },
+                "example": 300
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive/unknown Project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/PolicyForbidden"
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid profile, UUID, or pagination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "Invalid profile, UUID, or pagination",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Must exactly match CORS_ALLOWED_ORIGINS."
+          },
+          {
+            "in": "header",
+            "name": "Access-Control-Request-Method",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "GET",
+                "PATCH",
+                "DELETE"
+              ]
+            }
+          },
+          {
+            "in": "header",
+            "name": "Access-Control-Request-Headers",
+            "schema": {
+              "type": "string"
+            },
+            "example": "authorization,content-type"
+          }
+        ]
+      }
+    },
+    "/api/v1/conversations/{id}/pins": {
+      "parameters": [
+        {
+          "in": "path",
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "Messages"
+        ],
+        "operationId": "listPins",
+        "summary": "List live pinned message references",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "INVALID_REQUEST: invalid UUID/emoji, or add exceeds 32 emoji kinds per message / 100 live pins per conversation. Unicode emoji presentation aliases canonicalize before uniqueness checks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UNAUTHENTICATED: bearer отсутствует/некорректен, Auth отверг просроченную или отозванную сессию/заблокированный аккаунт, либо Project неактивен.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN / USER_BANNED / FEATURE_DISABLED / ORIGIN_FORBIDDEN: actor, moderator, Project feature or Origin policy denies this operation. Current checks apply to retries and removals.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND: отсутствует, другой Project или нет активного membership",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "description": "Unexpected application error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Unexpected application error",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "DEPENDENCY_UNAVAILABLE: недоступны Auth/БД/Redis или ответ Auth некорректен. Доступ не предоставляется, положительный кеш/fallback отсутствуют; клиент не должен удалять действующий токен из-за временного 503.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinList"
+                },
+                "example": {
+                  "items": [
+                    {
+                      "created_at": "2026-09-05T10:01:00Z",
+                      "pinned_by": "01900000-0000-4000-8000-000000000012",
+                      "resource_version": "3",
+                      "message_id": "01900000-0000-4000-8000-000000000010"
+                    }
+                  ],
+                  "snapshot_event_sequence": "4"
+                }
+              }
+            },
+            "description": "Committed current state"
+          }
+        },
+        "description": "Active membership, including read-only banned members. Existing pins remain readable with allow_pin disabled. One REPEATABLE READ snapshot with an event cursor; at most 100 live pins, ordered by message sequence. Excludes expired/deleted messages, even before retention cleanup. References include current message resource_version."
+      },
+      "options": {
+        "operationId": "pinsPreflight",
+        "tags": [
+          "CORS"
+        ],
+        "summary": "CORS preflight for message GET/PATCH/DELETE",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Preflight accepted, no body. No credential cookies supported.",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Methods": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Headers": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Max-Age": {
+                "schema": {
+                  "type": "integer"
+                },
+                "example": 300
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive/unknown Project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/PolicyForbidden"
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid profile, UUID, or pagination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "Invalid profile, UUID, or pagination",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Must exactly match CORS_ALLOWED_ORIGINS."
+          },
+          {
+            "in": "header",
+            "name": "Access-Control-Request-Method",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "GET",
+                "PATCH",
+                "DELETE"
+              ]
+            }
+          },
+          {
+            "in": "header",
+            "name": "Access-Control-Request-Headers",
+            "schema": {
+              "type": "string"
+            },
+            "example": "authorization,content-type"
+          }
+        ]
+      }
+    },
+    "/api/v1/conversations/{id}/pins/{message_id}": {
+      "parameters": [
+        {
+          "in": "path",
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "in": "path",
+          "name": "message_id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "put": {
+        "tags": [
+          "Messages"
+        ],
+        "operationId": "pinMessage",
+        "summary": "Pin a live message",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "INVALID_REQUEST: invalid UUID/emoji, or add exceeds 32 emoji kinds per message / 100 live pins per conversation. Unicode emoji presentation aliases canonicalize before uniqueness checks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UNAUTHENTICATED: bearer отсутствует/некорректен, Auth отверг просроченную или отозванную сессию/заблокированный аккаунт, либо Project неактивен.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN / USER_BANNED / FEATURE_DISABLED / ORIGIN_FORBIDDEN: actor, moderator, Project feature or Origin policy denies this operation. Current checks apply to retries and removals.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND: отсутствует, другой Project или нет активного membership",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "description": "Unexpected application error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Unexpected application error",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "DEPENDENCY_UNAVAILABLE: недоступны Auth/БД/Redis или ответ Auth некорректен. Доступ не предоставляется, положительный кеш/fallback отсутствуют; клиент не должен удалять действующий токен из-за временного 503.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessagePin"
+                },
+                "example": {
+                  "created_at": "2026-09-05T10:01:00Z",
+                  "pinned_by": "01900000-0000-4000-8000-000000000012",
+                  "resource_version": "3",
+                  "message_id": "01900000-0000-4000-8000-000000000010"
+                }
+              }
+            },
+            "description": "Committed current state"
+          }
+        },
+        "description": "Current GROUP/CHANNEL moderator membership, allow_pin and no Project/membership ban. Project admin alone has no bypass; DIRECT pinning is forbidden. Message must belong to the route conversation and Project. Association, message resource_version and reference event commit together. Sequence/edited_at/content unchanged; identical retries keep the original pin creator/time and produce no event. Body is unused. Deleted/expired messages return 404; at most 100 live pins."
+      },
+      "delete": {
+        "tags": [
+          "Messages"
+        ],
+        "operationId": "unpinMessage",
+        "summary": "Unpin a message",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "INVALID_REQUEST: invalid UUID/emoji, or add exceeds 32 emoji kinds per message / 100 live pins per conversation. Unicode emoji presentation aliases canonicalize before uniqueness checks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UNAUTHENTICATED: bearer отсутствует/некорректен, Auth отверг просроченную или отозванную сессию/заблокированный аккаунт, либо Project неактивен.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN / USER_BANNED / FEATURE_DISABLED / ORIGIN_FORBIDDEN: actor, moderator, Project feature or Origin policy denies this operation. Current checks apply to retries and removals.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND: отсутствует, другой Project или нет активного membership",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "description": "Unexpected application error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Unexpected application error",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "DEPENDENCY_UNAVAILABLE: недоступны Auth/БД/Redis или ответ Auth некорректен. Доступ не предоставляется, положительный кеш/fallback отсутствуют; клиент не должен удалять действующий токен из-за временного 503.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "Pin absent; repeated removal does not create an event."
+          }
+        },
+        "description": "Current GROUP/CHANNEL moderator membership, allow_pin and no Project/membership ban. Project admin alone has no bypass; DIRECT pinning is forbidden. Message must belong to the route conversation and Project. Association, message resource_version and reference event commit together. Sequence/edited_at/content unchanged; identical retries keep the original pin creator/time and produce no event. Body is unused. Repeated or terminal removal succeeds after current authorization."
+      },
+      "options": {
+        "operationId": "pinPreflight",
+        "tags": [
+          "CORS"
+        ],
+        "summary": "CORS preflight for message GET/PATCH/DELETE",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Preflight accepted, no body. No credential cookies supported.",
+            "headers": {
+              "Access-Control-Allow-Origin": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Methods": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Allow-Headers": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Access-Control-Max-Age": {
+                "schema": {
+                  "type": "integer"
+                },
+                "example": 300
+              }
+            }
+          },
+          "401": {
+            "description": "Missing/invalid access token or inactive/unknown Project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": "Missing/invalid access token or inactive/unknown Project",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "Bearer"
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/PolicyForbidden"
+          },
+          "405": {
+            "description": "Unsupported method; see Allow header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Unsupported method; see Allow header",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "description": "Database or lifecycle unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "DEPENDENCY_UNAVAILABLE",
+                    "message": "Database or lifecycle unavailable",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid profile, UUID, or pagination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "Invalid profile, UUID, or pagination",
+                    "request_id": "63a33144-e2d5-4b93-b542-857cb7dff881"
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Must exactly match CORS_ALLOWED_ORIGINS."
+          },
+          {
+            "in": "header",
+            "name": "Access-Control-Request-Method",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "GET",
+                "PATCH",
+                "DELETE"
+              ]
+            }
+          },
+          {
+            "in": "header",
+            "name": "Access-Control-Request-Headers",
+            "schema": {
+              "type": "string"
+            },
+            "example": "authorization,content-type"
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -9682,7 +10981,8 @@
           "resource_version",
           "created_at",
           "expires_at",
-          "status"
+          "status",
+          "reactions"
         ],
         "properties": {
           "id": {
@@ -9746,9 +11046,20 @@
           "deleted_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "reactions": {
+            "description": "Current counts sorted by canonical emoji; empty for deleted/expired messages. No unbounded user list.",
+            "items": {
+              "$ref": "#/components/schemas/Reaction"
+            },
+            "type": "array",
+            "maxItems": 32
+          },
+          "pin": {
+            "$ref": "#/components/schemas/MessagePin"
           }
         },
-        "description": "Authorized current state. Active rows have content; empty metadata may be omitted. Deleted/expired retained rows are tombstones with no content, metadata or reply. Replace the whole client DTO, never merge an omitted body into an older version. Original sender/sequence/TTL remain stable.",
+        "description": "Authorized current state. Active rows have content; empty metadata may be omitted. Deleted/expired retained rows are tombstones with no content, metadata or reply. Replace the whole client DTO, never merge an omitted body into an older version. Original sender/sequence/TTL remain stable. Reactions and pin share resource_version; relation mutations also invalidate stale edit versions. Terminal messages have reactions=[] and no pin. Features gate writes; existing relation state remains readable.",
         "oneOf": [
           {
             "properties": {
@@ -9767,6 +11078,9 @@
                   "deleted",
                   "expired"
                 ]
+              },
+              "reactions": {
+                "maxItems": 0
               }
             },
             "not": {
@@ -9784,6 +11098,11 @@
                 {
                   "required": [
                     "reply"
+                  ]
+                },
+                {
+                  "required": [
+                    "pin"
                   ]
                 }
               ]
@@ -9941,7 +11260,7 @@
           },
           "payload": {
             "type": "object",
-            "description": "Stored events contain references only. Authorized HTTP/WS replay enriches message.created/edited/deleted with current Message/tombstone in message. Its resource_version can be newer than the historical reference version. Hidden peer receipts become sync.advance with {}.",
+            "description": "Stored events contain references only. Authorized replay hydrates message.created/updated/deleted, reaction.created/deleted and message.pinned/unpinned with the whole current Message, including reactions/pin. Apply current resource_version; never apply historical relation deltas. Deleted/expired resources have no relations. Hidden peer receipts become sync.advance.",
             "properties": {
               "message": {
                 "$ref": "#/components/schemas/Message"
@@ -10010,8 +11329,8 @@
               "type": "string",
               "format": "uuid"
             },
-            "maxItems": 0,
-            "description": "Empty until step 5.2 implements pins."
+            "maxItems": 100,
+            "description": "All live pinned message IDs ordered by message sequence, including pins outside the last 50 messages. Replace this collection at snapshot_event_sequence."
           },
           "snapshot_event_sequence": {
             "type": "string",
@@ -10061,6 +11380,94 @@
             "text": "Исправленный текст"
           },
           "expected_version": "1"
+        }
+      },
+      "Reaction": {
+        "properties": {
+          "reaction": {
+            "description": "Canonical fully-qualified Unicode Emoji 16.0 sequence.",
+            "type": "string",
+            "example": "❤️"
+          },
+          "count": {
+            "example": "1",
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          }
+        },
+        "required": [
+          "reaction",
+          "count"
+        ],
+        "type": "object",
+        "example": {
+          "reaction": "❤️",
+          "count": "1"
+        }
+      },
+      "MessagePin": {
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "pinned_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "resource_version": {
+            "example": "1",
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          }
+        },
+        "required": [
+          "message_id",
+          "pinned_by",
+          "created_at",
+          "resource_version"
+        ],
+        "type": "object",
+        "example": {
+          "created_at": "2026-09-05T10:01:00Z",
+          "pinned_by": "01900000-0000-4000-8000-000000000012",
+          "resource_version": "3",
+          "message_id": "01900000-0000-4000-8000-000000000010"
+        }
+      },
+      "PinList": {
+        "properties": {
+          "snapshot_event_sequence": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MessagePin"
+            },
+            "type": "array",
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "items",
+          "snapshot_event_sequence"
+        ],
+        "type": "object",
+        "example": {
+          "items": [
+            {
+              "created_at": "2026-09-05T10:01:00Z",
+              "pinned_by": "01900000-0000-4000-8000-000000000012",
+              "resource_version": "3",
+              "message_id": "01900000-0000-4000-8000-000000000010"
+            }
+          ],
+          "snapshot_event_sequence": "4"
         }
       }
     },

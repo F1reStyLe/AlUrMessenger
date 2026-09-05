@@ -90,6 +90,36 @@ func page(w http.ResponseWriter, r *http.Request, items []message.Message, q mes
 
 // Register binds one shared application service to the standard auth/admission chain.
 func Register(server *httpserver.Server, s *message.Service, protect func(http.Handler) http.Handler) {
+	// Relation commands never take user_id/pinned_by from clients. The service
+	// receives only the verified actor and the exact route resource scope.
+	server.Handle("/api/v1/messages/{id}/reactions/{reaction}", protect(identityhttp.Methods("PUT, DELETE", func(w http.ResponseWriter, r *http.Request) {
+		m, err := s.React(r.Context(), identityhttp.Actor(r.Context()), r.PathValue("id"), "", r.PathValue("reaction"), r.Method == "PUT")
+		if err != nil {
+			Failure(w, r, err)
+			return
+		}
+		httpserver.WriteJSON(w, r, 200, m)
+	})))
+	server.Handle("/api/v1/conversations/{id}/pins", protect(identityhttp.Methods("GET", func(w http.ResponseWriter, r *http.Request) {
+		p, err := s.Pins(r.Context(), identityhttp.Actor(r.Context()), r.PathValue("id"))
+		if err != nil {
+			Failure(w, r, err)
+			return
+		}
+		httpserver.WriteJSON(w, r, 200, p)
+	})))
+	server.Handle("/api/v1/conversations/{id}/pins/{message_id}", protect(identityhttp.Methods("PUT, DELETE", func(w http.ResponseWriter, r *http.Request) {
+		m, err := s.SetPin(r.Context(), identityhttp.Actor(r.Context()), r.PathValue("id"), r.PathValue("message_id"), r.Method == "PUT")
+		if err != nil {
+			Failure(w, r, err)
+			return
+		}
+		if r.Method == "DELETE" {
+			w.WriteHeader(204)
+			return
+		}
+		httpserver.WriteJSON(w, r, 200, m.Pin)
+	})))
 	server.Handle("/api/v1/conversations/{id}/messages", protect(identityhttp.Methods("GET, POST", func(w http.ResponseWriter, r *http.Request) {
 		a := identityhttp.Actor(r.Context())
 		id := r.PathValue("id")

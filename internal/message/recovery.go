@@ -30,7 +30,7 @@ type Replay struct {
 }
 
 // Snapshot is one DB snapshot, not a composition of independently changing GETs.
-// Pins are empty until Phase 5; including the field makes cache replacement explicit.
+// Pins includes every live pinned message ID, including messages outside recent history.
 type Snapshot struct {
 	Conversation    conversation.Conversation `json:"conversation"`
 	Checkpoint      Checkpoint                `json:"checkpoint"`

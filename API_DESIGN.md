@@ -117,9 +117,9 @@ conversation; новые arbitrary client IDs не влияют на uniqueness.
 | PATCH `/api/v1/messages/{id}` | content, expected_version → Message | Автор; не SYSTEM; allow_edit; conflict → 409 |
 | DELETE `/api/v1/messages/{id}` | → tombstone | Автор + allow_delete; отдельная admin/moderation операция может удалить нарушение независимо от пользовательского flag |
 | GET `/api/v1/conversations/{id}/search` | q, before_sequence?, limit → matches, next_cursor | Только доступные живые messages; полные слова AND; sequence DESC |
-| PUT `/api/v1/messages/{id}/reactions/{reaction}` | → current reactions/version | Active member, allow_reactions; один Unicode emoji, URL-encoded |
-| DELETE `/api/v1/messages/{id}/reactions/{reaction}` | → current reactions/version | Только собственная reaction |
-| GET `/api/v1/conversations/{id}/pins` | → Message references | Membership |
+| PUT `/api/v1/messages/{id}/reactions/{reaction}` | → current Message/reactions/version | Active member включая CHANNEL reader, allow_reactions; один Emoji 16.0, URL-encoded |
+| DELETE `/api/v1/messages/{id}/reactions/{reaction}` | → current Message/reactions/version | Только собственная reaction, allow_reactions |
+| GET `/api/v1/conversations/{id}/pins` | → items: Pin references, snapshot_event_sequence | Membership; до 100 live pins, один snapshot |
 | PUT `/api/v1/conversations/{id}/pins/{message_id}` | → pin | Moderator, allow_pin; same conversation |
 | DELETE `/api/v1/conversations/{id}/pins/{message_id}` | → 204 | Moderator, allow_pin |
 | PUT `/api/v1/conversations/{id}/delivered` | sequence → own checkpoint | Active member; checkpoint max(old,new), не выше current sequence |

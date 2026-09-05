@@ -99,6 +99,8 @@ type Message struct {
 	ExpiresAt      time.Time      `json:"expires_at"`
 	EditedAt       *time.Time     `json:"edited_at,omitempty"`
 	DeletedAt      *time.Time     `json:"deleted_at,omitempty"`
+	Reactions      []Reaction     `json:"reactions"`
+	Pin            *Pin           `json:"pin,omitempty"`
 }
 
 // Sent is returned only after commit; the same result identity survives retries.
@@ -141,6 +143,9 @@ type Store interface {
 	Search(context.Context, identity.Actor, string, string, Query) ([]Message, error)
 	Edit(context.Context, identity.Actor, string, string, Edit) (Message, error)
 	Delete(context.Context, identity.Actor, string, string) (Message, error)
+	React(context.Context, identity.Actor, string, string, string, bool) (Message, error)
+	SetPin(context.Context, identity.Actor, string, string, bool) (Message, error)
+	Pins(context.Context, identity.Actor, string) (PinList, error)
 }
 
 // Service is shared by REST and WebSocket; client transports cannot invoke SYSTEM.

@@ -1,4 +1,4 @@
-# Реализованный WebSocket и recovery — Phase 4 и шаг 5.1
+# Реализованный WebSocket и recovery — Phase 4 и шаги 5.1–5.2
 
 `GET /ws`, subprotocol `chat.v1`. TLS завершается на production ingress; публично только WSS.
 Exact Origin allowlist общий с REST. Отсутствие Origin запрещено, кроме явного
@@ -26,11 +26,13 @@ Authenticated envelope: type, request_id, conversation_id, payload.
 | message.send | REST MessageSend: client_message_id, type TEXT, content, metadata?, reply_to_message_id? | ack с MessageSent после commit |
 | message.edit | message_id, content, expected_version (строка) | ack с текущим Message; VERSION_CONFLICT при старой версии |
 | message.delete | message_id | ack с tombstone; повтор не меняет version |
+| reaction.add / reaction.remove | message_id, reaction | ack с текущим Message/reactions/version; повтор не создаёт событие |
 | message.delivered / message.read | sequence, строка | ack с собственными checkpoint/version |
 | typing.start / typing.stop | {} | ack, TTL 5s; CHANNEL moderator only |
 | presence.watch | user_ids: UUID[], до 100 | ack со статусами; нужна подписка на conversation |
 
-Reactions/pins/forward — следующие шаги Phase 5, IMAGE — Phase 6; текущий WS их отвергает.
+Forward — шаг 5.3, IMAGE — Phase 6. Pins меняются через REST и распространяются через WS events.
+Reactions требуют allow_reactions, active membership и отсутствие bans; CHANNEL reader разрешён.
 Edit/delete требуют автора, текущего права записи и allow_edit/allow_delete; reply — allow_reply.
 Message ID обязан принадлежать conversation из envelope, проверка выполняется до mutation.
 Ошибки: error payload {code,message}; никаких SQL/Auth response bodies или контента в логах.
@@ -41,18 +43,22 @@ outbound queue 64, локальный Hub до 10000 connections. Медленн
 очереди не растут неограниченно, ошибки записи тоже закрывают socket.
 
 Durable frames: type, event_id, conversation_id, event_sequence (строка), payload references;
-message events дополнительно sequence. Для message.created/updated/deleted payload.message
+message events дополнительно sequence. Для message.created/updated/deleted,
+reaction.created/deleted, message.pinned/unpinned payload.message
 содержит актуальный Message/tombstone, а не текст на момент исторического события.
 Вложенный resource_version может быть новее reference resource_version. Клиент применяет
 только актуальные версии и заменяет DTO целиком, удаляя отсутствующий content/metadata/reply.
 Outbox/Kafka не содержат plaintext; hydration выполняется только после read authorization.
 Перед выдачей уже поставленного в очередь frame membership и текущие privacy flags проверяются снова.
-Message events и send/edit/delete ack заново читают состояние: очередь не сохраняет удалённый текст.
+Message/relation events и send/edit/delete/reaction ack заново читают состояние перед выдачей.
+Reactions и pin заменяются целиком по текущему resource_version; не применять исторические deltas.
+После message.deleted/expired reactions=[] и pin отсутствует; клиент также убирает ID из pins.
 Leave/kick → subscription.revoked без дальнейшего контента. Новый клиент получает snapshot;
 повторно отправленная команда использует прежний client_message_id.
 
 `GET /api/v1/conversations/{id}/snapshot` возвращает conversation, собственные checkpoints,
-последние 50 доступных messages ASC (включая tombstones), pins=[] (до 5.2), message_sequence и snapshot_event_sequence.
+последние 50 доступных messages ASC (включая tombstones), все live pins (message IDs, в том числе
+вне этих 50 messages), message_sequence и snapshot_event_sequence.
 Это одна REPEATABLE READ transaction. Затем subscribe с этим event cursor.
 `GET .../events?after_event_sequence=...&limit=50` — тот же PG replay, до 100 events.
 Future/gapped cursor → 409 RESYNC_REQUIRED; WS resync.required содержит snapshot_url.

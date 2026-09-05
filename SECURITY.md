@@ -53,6 +53,8 @@ reply/forward/attachment проверяется независимо; cross-proj
 | Писать в CHANNEL | Нет | Active moderator | Member/moderator либо privileged SYSTEM | Bot moderator + allowlist |
 | Edit собственного сообщения | Автор, flag | Только своё | Не переписывает чужой content | Bot только своё, SYSTEM запрещён |
 | Delete собственного сообщения | Автор, flag | То же | То же | Bot только своё |
+| Добавить/снять свою реакцию | Active membership, включая CHANNEL reader; flag | То же | Только собственная reaction | Membership + allow_bots |
+| Закрепить/открепить сообщение | Нет | Только GROUP/CHANNEL, allow_pin | Только как moderator | Bot moderator + allow_bots |
 | Удалить нарушение | Нет | Свой GROUP/CHANNEL, reason + audit | В Project через admin API | Только явно privileged moderation service |
 | Назначить moderator/управлять участниками | Нет | Свой GROUP/CHANNEL, last-moderator guard | Scoped admin capability | Нет по обычному bot key |
 | Ban/unban Project user, blacklist, reports review | Нет | Не global ban | Да, audit | Только admin capability |

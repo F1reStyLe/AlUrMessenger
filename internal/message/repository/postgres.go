@@ -29,7 +29,11 @@ type Store struct {
 }
 
 // columns contains ciphertext only; the decoder runs after an authorized lookup.
-const columns = `m.id::text,m.conversation_id::text,m.sender_id::text,m.type,m.sequence,m.resource_version,m.created_at,m.expires_at,m.encrypted_content,m.nonce,m.key_version,m.payload_version,m.reply_to_message_id::text,m.edited_at,m.deleted_at,m.expires_at<=clock_timestamp()`
+const columns = `m.id::text,m.conversation_id::text,m.sender_id::text,m.type,m.sequence,m.resource_version,m.created_at,m.expires_at,m.encrypted_content,m.nonce,m.key_version,m.payload_version,m.reply_to_message_id::text,m.edited_at,m.deleted_at,m.expires_at<=clock_timestamp(),
+ COALESCE((SELECT jsonb_agg(r ORDER BY r.reaction) FROM
+ (SELECT reaction,count(*)::text AS count FROM chat.message_reactions WHERE project_id=m.project_id AND conversation_id=m.conversation_id AND message_id=m.id GROUP BY reaction) r),'[]'::jsonb),
+ (SELECT jsonb_build_object('message_id',p.message_id,'pinned_by',p.pinned_by,'created_at',p.created_at,'resource_version',m.resource_version::text)
+ FROM chat.pinned_messages p WHERE p.project_id=m.project_id AND p.conversation_id=m.conversation_id AND p.message_id=m.id)`
 
 // scan decrypts the exact row context. Corrupt/unknown key versions fail closed.
 func (s *Store) scan(project string, row pgx.Row) (message.Message, error) {
@@ -37,7 +41,8 @@ func (s *Store) scan(project string, row pgx.Row) (message.Message, error) {
 	var e cryptography.Envelope
 	var reply *string
 	var expired bool
-	err := row.Scan(&m.ID, &m.ConversationID, &m.SenderID, &m.Type, &m.Sequence, &m.Version, &m.CreatedAt, &m.ExpiresAt, &e.Ciphertext, &e.Nonce, &e.KeyVersion, &e.PayloadVersion, &reply, &m.EditedAt, &m.DeletedAt, &expired)
+	var reactions, pin []byte
+	err := row.Scan(&m.ID, &m.ConversationID, &m.SenderID, &m.Type, &m.Sequence, &m.Version, &m.CreatedAt, &m.ExpiresAt, &e.Ciphertext, &e.Nonce, &e.KeyVersion, &e.PayloadVersion, &reply, &m.EditedAt, &m.DeletedAt, &expired, &reactions, &pin)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return m, identity.ErrNotFound
 	}
@@ -47,6 +52,7 @@ func (s *Store) scan(project string, row pgx.Row) (message.Message, error) {
 	// Never decrypt a tombstone, even if old keys are gone or its wiped ciphertext
 	// is no longer a valid GCM envelope. DB time determines retention eligibility.
 	m.Status = "active"
+	m.Reactions = []message.Reaction{}
 	if m.DeletedAt != nil {
 		m.Status = "deleted"
 		return m, nil
@@ -54,6 +60,16 @@ func (s *Store) scan(project string, row pgx.Row) (message.Message, error) {
 	if expired {
 		m.Status = "expired"
 		return m, nil
+	}
+	// The relation aggregates are part of this same SQL snapshot as the version.
+	// Never expose them on terminal rows, even before physical retention cleanup.
+	if err = json.Unmarshal(reactions, &m.Reactions); err != nil {
+		return m, err
+	}
+	if len(pin) > 0 {
+		if err = json.Unmarshal(pin, &m.Pin); err != nil {
+			return m, err
+		}
 	}
 	plain, err := s.Crypto.Open(project, m.ConversationID, m.ID, e)
 	if err != nil {
@@ -88,6 +104,13 @@ func readAccess(ctx context.Context, tx pgx.Tx, a identity.Actor, conversation s
 // writeAccess takes the documented Project → actor → idempotency → conversation →
 // membership locks. SYSTEM is reserved for a DB-backed system actor and internal call.
 func writeAccess(ctx context.Context, tx pgx.Tx, a identity.Actor, conversation, clientID string, system bool) (int, error) {
+	return activityAccess(ctx, tx, a, conversation, clientID, system, true)
+}
+
+// activityAccess shares lock ordering and ban/identity checks with message writes.
+// Reactions are available to CHANNEL readers too; only content writes require a
+// moderator. Pins perform their stricter GROUP/CHANNEL role check after this gate.
+func activityAccess(ctx context.Context, tx pgx.Tx, a identity.Actor, conversation, clientID string, system, channelWrite bool) (int, error) {
 	var active, bots, banned bool
 	var retention int
 	var kind string
@@ -150,7 +173,7 @@ func writeAccess(ctx context.Context, tx pgx.Tx, a identity.Actor, conversation,
 		if banned {
 			return 0, identity.ErrBanned
 		}
-		if conversationType == "CHANNEL" && role != "moderator" {
+		if channelWrite && conversationType == "CHANNEL" && role != "moderator" {
 			return 0, policy.ErrForbidden
 		}
 	}
