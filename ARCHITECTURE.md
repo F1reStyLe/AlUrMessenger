@@ -16,6 +16,9 @@ authorized recovery гидратирует актуальный Message, вкл�
 Шаг 5.4 закрепляет единую flag/changefeed hydration матрицу Phase 5 без новой схемы.
 Точный текущий контракт: [Messages](docs/MESSAGES.md), [Realtime](docs/REALTIME.md).
 Возможности Phase 6–10 ниже остаются архитектурным планом.
+Шаг 6.1 вводит модуль attachment: HTTP только разбирает bounded multipart, application полностью
+валидирует/декодирует image, PostgreSQL repository ведёт explicit lifecycle, objectstore adapter
+пишет private namespaced object. Контракт: [Attachments](docs/ATTACHMENTS.md).
 Основание: [ТЗ](docs/REQUIREMENTS.md), [решения](DECISIONS.md), [план](IMPLEMENTATION_PLAN.md).
 Проект создаётся с нуля; совместимость с удалённым прототипом не требуется.
 

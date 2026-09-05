@@ -11,7 +11,9 @@ Phase 0 и **Phase 1 — Foundation (1.1–1.6)** завершены: API/worker
 [зашифрованные messages/search/outbox](docs/MESSAGES.md), [WebSocket/recovery/presence](docs/REALTIME.md).
 Завершена **Phase 5**: reply, edit/delete, reactions, moderator pins, независимый TEXT forward,
 feature-flag matrix и безопасный replay текущего состояния.
-Phase 6–10, gRPC и frontend ещё не реализованы. [Identity API и seed](docs/IDENTITY.md).
+Остальная Phase 6, Phase 7–10, gRPC и frontend ещё не реализованы. [Identity API и seed](docs/IDENTITY.md).
+Шаг **6.1** добавляет [проверенный private image upload](docs/ATTACHMENTS.md); привязка к
+IMAGE messages и download authorization продолжаются в 6.2.
 Добавлены [Project policies, CORS, Redis limits и audit](docs/POLICIES.md).
 Swagger UI доступен на `/docs/api`, спецификация — `/docs/api/openapi.json`.
 Readiness подтверждает готовность инфраструктуры, а не всего Chat API.
@@ -114,7 +116,10 @@ development/test/production. Неверные/пустые заданные зн
 | HTTP_READ_TIMEOUT / HTTP_WRITE_TIMEOUT | 10s / 15s |
 | HTTP_IDLE_TIMEOUT | 60s |
 | HTTP_MAX_HEADER_BYTES | 32768; 1024–1048576 |
-| HTTP_MAX_BODY_BYTES | 1048576; 1–16777216, включая chunked JSON requests |
+| HTTP_MAX_BODY_BYTES | 67108864; 1–67108864, включая chunked multipart; JSON дополнительно ≤1 MiB |
+| GLOBAL_MAX_UPLOAD_SIZE | 52428800; 1–52428800, верхняя граница project max_upload_size |
+| IMAGE_MAX_DIMENSION / IMAGE_MAX_PIXELS | 8192 / 16000000; server security ceilings |
+| IMAGE_DECODE_CONCURRENCY | 2; 1–16 одновременных полных decode |
 | AUTH_MODE | remote по умолчанию; dev-rsa только development/test, без fallback |
 | AUTH_BASE_URL / AUTH_PROJECT_ID | Обязательны для remote; trusted Auth endpoint (HTTPS в production) и существующий Project UUID |
 | AUTH_PUBLIC_KEY_FILE | Только dev-rsa: RSA public PEM >=2048 bits; проверяется до bind |
@@ -125,7 +130,7 @@ development/test/production. Неверные/пустые заданные зн
 только loopback HTTP и JSON logs: TLS/authentication deployment ещё не реализован.
 Настройки POSTGRES/REDIS/KAFKA/MINIO, INFRA_TIMEOUT и secret files описаны в
 [инфраструктурной инструкции](docs/INFRASTRUCTURE.md). JWT и policy settings —
-[Identity](docs/IDENTITY.md)/[Policies](docs/POLICIES.md). Encryption/webhooks вводятся позже.
+[Identity](docs/IDENTITY.md)/[Policies](docs/POLICIES.md). Upload — в [Attachments](docs/ATTACHMENTS.md).
 
 Ctrl+C/SIGTERM запускает drain: readiness снимается, новые соединения/запросы не принимаются,
 текущие HTTP handlers получают время завершиться. По deadline contexts отменяются, connections

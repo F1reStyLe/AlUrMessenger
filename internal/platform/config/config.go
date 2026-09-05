@@ -31,6 +31,16 @@ type Config struct {
 	ShutdownTimeout time.Duration
 	Log             Log
 	HTTP            HTTP
+	Upload          Upload
+}
+
+// Upload contains process-wide security ceilings. Project settings may only
+// reduce MaxBytes; dimensions/pixels and decoder concurrency are never tenant controlled.
+type Upload struct {
+	MaxBytes          int64
+	MaxDimension      int
+	MaxPixels         int64
+	DecodeConcurrency int
 }
 
 // Log определяет минимальный уровень и формат вывода; production допускает только JSON.
@@ -152,7 +162,13 @@ func load(service Service, lookup func(string) (string, bool)) (Config, error) {
 			WriteTimeout:      duration("HTTP_WRITE_TIMEOUT", "15s"),
 			IdleTimeout:       duration("HTTP_IDLE_TIMEOUT", "60s"),
 			MaxHeaderBytes:    int(integer("HTTP_MAX_HEADER_BYTES", "32768", 1024, 1<<20)),
-			MaxBodyBytes:      integer("HTTP_MAX_BODY_BYTES", "1048576", 1, 16<<20),
+			MaxBodyBytes:      integer("HTTP_MAX_BODY_BYTES", "67108864", 1, 64<<20),
+		},
+		Upload: Upload{
+			MaxBytes:          integer("GLOBAL_MAX_UPLOAD_SIZE", "52428800", 1, 50<<20),
+			MaxDimension:      int(integer("IMAGE_MAX_DIMENSION", "8192", 1, 16384)),
+			MaxPixels:         integer("IMAGE_MAX_PIXELS", "16000000", 1, 64_000_000),
+			DecodeConcurrency: int(integer("IMAGE_DECODE_CONCURRENCY", "2", 1, 16)),
 		},
 	}
 	// Заголовки входят в общий read timeout; отдельное окно не должно быть длиннее.

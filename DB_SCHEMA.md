@@ -78,8 +78,8 @@ Membership version независимо защищает read/mute/role updates.
 
 | Таблица | Основные поля | Constraints / индексы |
 | --- | --- | --- |
-| storage_objects | id, project_id, storage_key, mime_type, size, sha256, status uploading/ready/pending_delete/deleted, created_at | UNIQUE(storage_key); keys project/{project_id}/attachments/{uuid}; size <= validated global cap |
-| attachments | id, project_id, uploader_id, object_id, original_name, status pending/ready/attached/deleted, created_at, expires_at | UNIQUE(project_id,id); composite object FK; filename sanitized metadata, не storage path |
+| storage_objects | id, project_id, storage_key, mime_type, size, sha256, status uploading/ready/pending_delete/deleted, created_at, updated_at | UNIQUE(project_id,id), UNIQUE(storage_key); keys project/{project_id}/attachments/{uuid}; size <= 50 MiB DB cap |
+| attachments | id, project_id, uploader_id, object_id, original_name, mime_type, size, width, height, status uploading/ready/attached/deleted, created_at, expires_at | UNIQUE(project_id,id), UNIQUE(project_id,object_id); composite object/user FK; filename sanitized metadata, не storage path |
 | message_attachments | project_id, conversation_id, message_id, attachment_id, position | PK(project_id,message_id,attachment_id); UNIQUE(project_id,attachment_id); composite FK; исходный attachment прикрепляется к одному message; forward создаёт новый logical attachment |
 | storage_cleanup_jobs | id, project_id, object_id, state, attempts, next_attempt_at, lease_until, last_error_code, created_at | UNIQUE(project_id,object_id); index(state,next_attempt_at); никакого signed URL/секрета в last_error |
 

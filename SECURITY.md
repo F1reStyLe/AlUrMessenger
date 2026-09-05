@@ -116,6 +116,11 @@ image. Не доверять клиентскому Content-Type. Огранич
 SVG/HTML/executable/polyglot/повреждённые файлы отклоняются. При нормализации изображения удалять
 необязательные metadata/EXIF; не предоставлять непроверенный upload как ready attachment.
 
+Реализация 6.1 принимает ровно один multipart file, сначала применяет effective Project/global
+byte limit, затем сверяет extension, declared MIME, magic и точный конец контейнера. DecodeConfig
+ограничивает 8192/16M до полного decode; decode concurrency bounded. Staging идёт в mode 0600 tmpfs,
+после запроса файл удаляется. JSON сохраняет отдельный 1 MiB limit. SVG/GIF и trailers запрещены.
+
 Private bucket, случайные namespaced keys; original_name не влияет на object path. Attach разрешён
 только uploader/разрешённому use case в том же Project. Новый attachment не может ссылаться на
 pending-delete object. Signed URL выдаётся только после повторной authorization, TTL ≤ 60 секунд,

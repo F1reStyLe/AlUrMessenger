@@ -168,7 +168,7 @@ soft delete или физической очистки источника. IMAGE
 
 | Method/path | Request / response | Правила |
 | --- | --- | --- |
-| POST `/api/v1/attachments` | multipart image → Attachment ready | Membership не требуется до attach; human/bot с allow_images, size/MIME/decoder validation |
+| POST `/api/v1/attachments` | multipart image → Attachment ready | **Реализовано 6.1**: ровно один file; membership не требуется до attach; human/bot с allow_images, effective size/MIME/extension/magic/full decoder/container validation |
 | GET `/api/v1/attachments/{id}` | → safe metadata | Uploader пока unattached, иначе membership доступного message |
 | POST `/api/v1/attachments/{id}/download-url` | → url, expires_at | Read-authorized capability issuance; не доменная запись, допустима banned read-only |
 | POST `/api/v1/messages/{id}/reports` | reason, description → Report | Доступный message, незаблокированный human |

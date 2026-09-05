@@ -412,3 +412,21 @@ outbox и Kafka остаются reference-only. Get/history/search/snapshot, RE
 live WS и reconnect replay используют одну projection; terminal state всегда заменяет DTO целиком
 без content/metadata/reply/forward/reactions/pin. Отдельные historical delta DTO отклонены: они
 усложнили бы порядок edit/delete/relation событий и могли воскресить устаревшее состояние.
+
+## D40 — Проверенный upload и recoverable lifecycle (шаг 6.1)
+
+Статус: принято. HTTP принимает ровно один multipart `file`, spools его в mode 0600 tmpfs под
+effective `min(project.max_upload_size, GLOBAL_MAX_UPLOAD_SIZE)`. Глобальный cap 50 MiB; JSON после
+увеличения transport ceiling остаётся отдельно ограничен 1 MiB. Filename сохраняется только как
+очищенная metadata и никогда не участвует в storage key.
+
+JPEG/PNG/WebP обязаны одновременно совпасть по extension, declared MIME, magic и decoder format.
+До полного decode проверяются dimension 8192 и 16M pixels; decode concurrency bounded. PNG IEND,
+JPEG EOI и WebP RIFF length обязаны завершать файл точно, поэтому decoder-tolerated trailers/polyglots
+не принимаются. SVG/GIF и повреждённые streams отклоняются. `golang.org/x/image/webp` закреплён
+как официальный decoder; runtime network для проверки не нужен.
+
+PostgreSQL сначала фиксирует storage_object/attachment со status=uploading, затем MinIO получает
+random `project/{project_id}/attachments/{object_uuid}`, после ack обе строки атомарно становятся
+ready. Это не распределённая transaction: crash/error оставляет видимый uploading row, который
+сверит sweeper 6.3. Невидимый orphan без Project/owner metadata не создаётся. Binary в БД отсутствует.

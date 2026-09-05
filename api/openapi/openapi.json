@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Universal Chat Service",
-    "version": "0.12.0",
+    "version": "0.13.0",
     "description": "Реализованный Foundation: infrastructure probes, access JWT внешнего Auth, Project-scoped профили, локальные роли user/admin, settings/feature flags и append-only audit. AUTH_MODE=remote: Chat проверяет JWT на каждом запросе через Auth GET /api/v1/users/me без положительного кеша; Auth подтверждает идентичность и действующую сессию. Login/refresh/logout выполняются в Auth, второй токен Chat не нужен. Project задаёт серверный AUTH_PROJECT_ID, роль читает Chat из своей БД; роли Auth/JWT не дают прав. После logout Auth старые access JWT получают Chat 401; недоступность Auth даёт 503 без fallback. Один Auth/Project на экземпляр API. Offline dev-rsa допустим только development/test, без отзыва внешних сессий. Swagger UI на /docs/api, ресурсы локальные. Conversations и memberships реализованы. Messages TEXT/SYSTEM, AES-GCM, blind search, sequence/dedup и transactional outbox реализованы. WebSocket/recovery/checkpoints/presence/typing реализованы. Phase 5 полностью реализована: reply, edit/delete, reactions/pins, независимый TEXT forward и единая flag/current-state hydration матрица. Phase 6–10 ещё не реализованы. Redis limits: 120/IP и 60/Project-user за 60s, fail closed 503. CORS — exact allowlist, без cookies. Application responses содержат X-Request-ID, no-store, nosniff; ошибки net/http до middleware могут иметь иной формат."
   },
   "servers": [
@@ -3013,6 +3013,32 @@
           "$ref": "#/components/parameters/RequestID"
         }
       ]
+    },
+    "/api/v1/attachments": {
+      "post": {
+        "tags": ["Attachments"],
+        "operationId": "uploadAttachment",
+        "summary": "Validate and upload a private image",
+        "security": [{"BearerAuth": []}],
+        "description": "Accepts exactly one multipart field named file. Active human/bot actor required; no conversation membership is needed until attachment. Checks allow_images and effective min(project.max_upload_size, GLOBAL_MAX_UPLOAD_SIZE) before and immediately before persistence. Filename is metadata only. Client MIME, extension, magic bytes, exact container end, full JPEG/PNG/WebP decode, dimensions <=8192 and pixels <=16M must agree. Object bytes are never stored in PostgreSQL. A storage failure leaves an explicit uploading lifecycle row for reconciliation.",
+        "requestBody": {"required": true, "content": {"multipart/form-data": {"schema": {"$ref": "#/components/schemas/AttachmentUpload"}, "encoding": {"file": {"contentType": "image/jpeg, image/png, image/webp"}}}}},
+        "responses": {
+          "201": {"description": "Validated private object and ready attachment metadata", "headers": {"Location": {"schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Attachment"}}}},
+          "400": {"description": "INVALID_IMAGE: malformed multipart, unsafe filename, corrupt image, excessive dimensions/pixels or polyglot trailer", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "401": {"description": "UNAUTHENTICATED", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "403": {"description": "FEATURE_DISABLED / USER_BANNED / FORBIDDEN", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "405": {"description": "Unsupported method; see Allow header", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "413": {"description": "ATTACHMENT_TOO_LARGE or server request bound", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "415": {"description": "UNSUPPORTED_MEDIA: multipart/type/extension/magic mismatch or unsupported format", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "500": {"description": "Unable to stage or persist lifecycle metadata", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "503": {"description": "DEPENDENCY_UNAVAILABLE: object storage or another required dependency unavailable", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+        }
+      },
+      "options": {
+        "tags": ["CORS"], "operationId": "preflightUploadAttachment", "summary": "CORS preflight for image upload", "security": [],
+        "responses": {"204": {"description": "Preflight accepted"}, "403": {"description": "ORIGIN_FORBIDDEN", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}}
+      }
     },
     "/api/v1/conversations": {
       "get": {
@@ -10926,6 +10952,25 @@
             "maxLength": 16384,
             "description": "Nonblank UTF-8 text, at most 16384 bytes and 2048 distinct indexed words."
           }
+        }
+      },
+      "AttachmentUpload": {
+        "type": "object", "additionalProperties": false, "required": ["file"],
+        "properties": {"file": {"type": "string", "format": "binary", "description": "Exactly one JPEG, PNG or WebP file part."}}
+      },
+      "Attachment": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "original_name", "mime_type", "size", "width", "height", "status", "created_at", "expires_at"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "original_name": {"type": "string", "maxLength": 255},
+          "mime_type": {"type": "string", "enum": ["image/jpeg", "image/png", "image/webp"]},
+          "size": {"type": "integer", "format": "int64", "minimum": 1, "maximum": 52428800},
+          "width": {"type": "integer", "minimum": 1, "maximum": 8192},
+          "height": {"type": "integer", "minimum": 1, "maximum": 8192},
+          "status": {"type": "string", "const": "ready"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "expires_at": {"type": "string", "format": "date-time", "description": "Unattached upload cleanup deadline; attachment in Phase 6.2 changes lifecycle."}
         }
       },
       "MessageSend": {

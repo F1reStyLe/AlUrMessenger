@@ -3,6 +3,9 @@ package app
 
 import (
 	"context"
+	"github.com/F1reStyLe/AlUrMessenger/internal/attachment"
+	attachmentrepo "github.com/F1reStyLe/AlUrMessenger/internal/attachment/repository"
+	attachmenthttp "github.com/F1reStyLe/AlUrMessenger/internal/attachment/transport"
 	"github.com/F1reStyLe/AlUrMessenger/internal/auth"
 	"github.com/F1reStyLe/AlUrMessenger/internal/conversation"
 	conversationrepo "github.com/F1reStyLe/AlUrMessenger/internal/conversation/repository"
@@ -154,6 +157,8 @@ func run(ctx context.Context, service config.Service, output io.Writer) (exitCod
 			return limiter.Before(identityhttp.Authenticate(identities, limiter.After(next)))
 		}
 		identityhttp.Register(server, identities, protect)
+		attachments := attachment.New(&attachmentrepo.Store{DB: clients.Postgres}, clients.Storage, cfg.Upload)
+		attachmenthttp.Register(server, attachments, protect)
 		messageStore := &messagerepo.Store{DB: clients.Postgres, Crypto: contentKeys}
 		messages := &message.Service{Store: messageStore}
 		recovery := &message.RecoveryService{Store: messageStore}

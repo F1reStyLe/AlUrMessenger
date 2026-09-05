@@ -54,8 +54,12 @@ func TestInvalidConfigurationDoesNotLeakValues(t *testing.T) {
 		{"HTTP_IDLE_TIMEOUT", ""},
 		{"HTTP_MAX_HEADER_BYTES", "0"},
 		{"HTTP_MAX_BODY_BYTES", "-1"},
-		{"HTTP_MAX_BODY_BYTES", "16777217"},
+		{"HTTP_MAX_BODY_BYTES", "67108865"},
 		{"HTTP_MAX_BODY_BYTES", "secret-body-limit"},
+		{"GLOBAL_MAX_UPLOAD_SIZE", "52428801"},
+		{"IMAGE_MAX_DIMENSION", "16385"},
+		{"IMAGE_MAX_PIXELS", "64000001"},
+		{"IMAGE_DECODE_CONCURRENCY", "17"},
 	} {
 		t.Run(tc.key+"/"+tc.value, func(t *testing.T) {
 			values := map[string]string{"APP_ENV": "development", tc.key: tc.value}
@@ -99,7 +103,7 @@ func TestValidOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.Log.Level != slog.LevelWarn || cfg.Log.Format != "text" || cfg.HTTP.Address != "[::1]:9091" ||
-		cfg.ShutdownTimeout != 500*time.Millisecond || cfg.HTTP.MaxBodyBytes != 2048 {
+		cfg.ShutdownTimeout != 500*time.Millisecond || cfg.HTTP.MaxBodyBytes != 2048 || cfg.Upload.MaxBytes != 50<<20 {
 		t.Fatalf("valid overrides were not applied: %+v", cfg)
 	}
 	if _, err := load(Service("unknown"), fromMap(nil)); err == nil {

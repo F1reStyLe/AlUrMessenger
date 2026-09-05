@@ -111,6 +111,7 @@ func TestConversationMessageAndRecoveryRoutes(t *testing.T) {
 	}
 	for path, methods := range map[string][]string{
 		"/api/v1/conversations":                        {"get", "post", "options"},
+		"/api/v1/attachments":                          {"post", "options"},
 		"/api/v1/conversations/{id}":                   {"get", "patch", "options"},
 		"/api/v1/conversations/{id}/members":           {"get", "post", "options"},
 		"/api/v1/conversations/{id}/members/{user_id}": {"patch", "delete", "options"},

@@ -2,6 +2,8 @@
 # Run APP_ENV=development go run ./cmd/dev-init first. Do not delete .local or volumes to upgrade.
 x-runtime: &runtime
   read_only: true
+  # Multipart uploads are staged with mode 0600; no writable image data enters the container layer.
+  tmpfs: [/tmp:size=64m,mode=1777]
   cap_drop: [ALL]
   security_opt: [no-new-privileges:true]
   stop_grace_period: 25s

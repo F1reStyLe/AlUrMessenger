@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -72,6 +73,16 @@ func (s *Store) Initialize(ctx context.Context) error {
 		}
 	}
 	return s.Check(ctx)
+}
+
+// Put writes one already validated object with an exact size and private bucket
+// defaults. The caller owns lifecycle metadata and receives no provider details.
+func (s *Store) Put(ctx context.Context, key string, body io.Reader, size int64, contentType string) error {
+	result, err := s.Client.PutObject(ctx, s.Bucket, key, body, size, minio.PutObjectOptions{ContentType: contentType, DisableMultipart: size < 5<<20})
+	if err != nil || result.Size != size {
+		return errors.New("MINIO_PUT_FAILED")
+	}
+	return nil
 }
 
 // Close освобождает idle connections после завершения использующих store handlers.

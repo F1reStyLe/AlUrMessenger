@@ -5,9 +5,9 @@
 Commit/push — только по прямому требованию пользователя. Локальный журнал шагов ведётся в
 игнорируемом `Agents.md`; результаты фазы и инструкции запуска отражаются в versioned документации.
 
-Текущая реализация: Phase 0–5. Conversations/memberships, encrypted messages/search/outbox,
-WebSocket/replay/checkpoints/presence и все message features Phase 5 доступны и проверены.
-Следующий шаг — 6.1; Phase 6–10 ещё не реализованы.
+Текущая реализация: Phase 0–5 и шаг 6.1. Проверенный private JPEG/PNG/WebP upload доступен.
+Следующий шаг — 6.2: attachment authorization, message association и short download URL.
+Остальная Phase 6 и Phase 7–10 ещё не реализованы.
 Контракты и ограничения: docs/CONVERSATIONS.md, docs/MESSAGES.md, docs/REALTIME.md.
 
 ## Порядок работы и Definition of Done

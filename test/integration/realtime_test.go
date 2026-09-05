@@ -3,18 +3,25 @@
 package integration
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net"
 	"net/http"
+	"net/textproto"
 	neturl "net/url"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/F1reStyLe/AlUrMessenger/internal/attachment"
+	attachmentrepo "github.com/F1reStyLe/AlUrMessenger/internal/attachment/repository"
+	attachmenthttp "github.com/F1reStyLe/AlUrMessenger/internal/attachment/transport"
 	"github.com/F1reStyLe/AlUrMessenger/internal/auth"
 	"github.com/F1reStyLe/AlUrMessenger/internal/conversation"
 	conversationrepo "github.com/F1reStyLe/AlUrMessenger/internal/conversation/repository"
@@ -119,6 +126,7 @@ func testRealtime(t *testing.T, clients *infrastructure.Clients, op *pgx.Conn) {
 		}
 		messagehttp.Register(server, messages, protect)
 		messagehttp.RegisterRecovery(server, recovery, protect)
+		attachmenthttp.Register(server, attachment.New(&attachmentrepo.Store{DB: clients.Postgres}, clients.Storage, config.Upload{MaxBytes: 50 << 20, MaxDimension: 8192, MaxPixels: 16_000_000, DecodeConcurrency: 2}), protect)
 		listener, e := net.Listen("tcp", "127.0.0.1:0")
 		if e != nil {
 			t.Fatal(e)
@@ -216,6 +224,36 @@ func testRealtime(t *testing.T, clients *infrastructure.Clients, op *pgx.Conn) {
 	// REST and WebSocket share the same committed send receipt and projections.
 	client := &http.Client{Timeout: 5 * time.Second}
 	defer client.CloseIdleConnections()
+	// The upload route uses the same verified Actor but a strict multipart body.
+	pngBody, _ := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	var multipartBody bytes.Buffer
+	multipartWriter := multipart.NewWriter(&multipartBody)
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", `form-data; name="file"; filename="pixel.png"`)
+	header.Set("Content-Type", "image/png")
+	filePart, e := multipartWriter.CreatePart(header)
+	if e != nil {
+		t.Fatal(e)
+	}
+	filePart.Write(pngBody)
+	multipartWriter.Close()
+	uploadURL := "http" + strings.TrimSuffix(strings.TrimPrefix(first, "ws"), "/ws") + "/api/v1/attachments"
+	uploadRequest, e := http.NewRequestWithContext(ctx, "POST", uploadURL, &multipartBody)
+	if e != nil {
+		t.Fatal(e)
+	}
+	uploadRequest.Header.Set("Authorization", "Bearer "+aToken)
+	uploadRequest.Header.Set("Content-Type", multipartWriter.FormDataContentType())
+	uploadResponse, e := client.Do(uploadRequest)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var uploaded attachment.Attachment
+	e = json.NewDecoder(uploadResponse.Body).Decode(&uploaded)
+	uploadResponse.Body.Close()
+	if e != nil || uploadResponse.StatusCode != 201 || uploaded.Status != "ready" || uploaded.MIME != "image/png" {
+		t.Fatal("multipart upload", uploadResponse.StatusCode, uploaded, e)
+	}
 	request := func(method, path, body string, want int) []byte {
 		t.Helper()
 		url := "http" + strings.TrimSuffix(strings.TrimPrefix(first, "ws"), "/ws") + path

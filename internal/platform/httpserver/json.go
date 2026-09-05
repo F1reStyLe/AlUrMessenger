@@ -75,6 +75,9 @@ func readJSON(w http.ResponseWriter, r *http.Request, destination any, rejectNul
 		WriteError(w, r, http.StatusBadRequest, "INVALID_REQUEST", "A JSON object is required")
 		return false
 	}
+	// The server-wide limit is large enough for streamed images. JSON contracts
+	// retain their tighter one-MiB bound before allocating a RawMessage.
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	decoder := json.NewDecoder(r.Body)
 	var raw json.RawMessage
 	if err := decoder.Decode(&raw); err != nil {
