@@ -29,18 +29,31 @@ type Store struct {
 }
 
 // columns contains ciphertext only; the decoder runs after an authorized lookup.
-const columns = `m.id::text,m.conversation_id::text,m.sender_id::text,m.type,m.sequence,m.resource_version,m.created_at,m.expires_at,m.encrypted_content,m.nonce,m.key_version,m.payload_version`
+const columns = `m.id::text,m.conversation_id::text,m.sender_id::text,m.type,m.sequence,m.resource_version,m.created_at,m.expires_at,m.encrypted_content,m.nonce,m.key_version,m.payload_version,m.reply_to_message_id::text,m.edited_at,m.deleted_at,m.expires_at<=clock_timestamp()`
 
 // scan decrypts the exact row context. Corrupt/unknown key versions fail closed.
 func (s *Store) scan(project string, row pgx.Row) (message.Message, error) {
 	var m message.Message
 	var e cryptography.Envelope
-	err := row.Scan(&m.ID, &m.ConversationID, &m.SenderID, &m.Type, &m.Sequence, &m.Version, &m.CreatedAt, &m.ExpiresAt, &e.Ciphertext, &e.Nonce, &e.KeyVersion, &e.PayloadVersion)
+	var reply *string
+	var expired bool
+	err := row.Scan(&m.ID, &m.ConversationID, &m.SenderID, &m.Type, &m.Sequence, &m.Version, &m.CreatedAt, &m.ExpiresAt, &e.Ciphertext, &e.Nonce, &e.KeyVersion, &e.PayloadVersion, &reply, &m.EditedAt, &m.DeletedAt, &expired)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return m, identity.ErrNotFound
 	}
 	if err != nil {
 		return m, err
+	}
+	// Never decrypt a tombstone, even if old keys are gone or its wiped ciphertext
+	// is no longer a valid GCM envelope. DB time determines retention eligibility.
+	m.Status = "active"
+	if m.DeletedAt != nil {
+		m.Status = "deleted"
+		return m, nil
+	}
+	if expired {
+		m.Status = "expired"
+		return m, nil
 	}
 	plain, err := s.Crypto.Open(project, m.ConversationID, m.ID, e)
 	if err != nil {
@@ -52,7 +65,10 @@ func (s *Store) scan(project string, row pgx.Row) (message.Message, error) {
 	if dec.Decode(&payload) != nil {
 		return m, cryptography.ErrCrypto
 	}
-	m.Content, m.Metadata = payload.Content, payload.Metadata
+	m.Content, m.Metadata = &payload.Content, payload.Metadata
+	if reply != nil {
+		m.Reply = &message.Reply{MessageID: *reply}
+	}
 	return m, nil
 }
 
@@ -108,8 +124,11 @@ func writeAccess(ctx context.Context, tx pgx.Tx, a identity.Actor, conversation,
 			return 0, policy.ErrFeatureDisabled
 		}
 	}
-	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", "message.dedup:"+a.ProjectID+":"+a.User.ID+":"+clientID); err != nil {
-		return 0, err
+	// Edits/deletes have no send receipt and go straight to the conversation lock.
+	if clientID != "" {
+		if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", "message.dedup:"+a.ProjectID+":"+a.User.ID+":"+clientID); err != nil {
+			return 0, err
+		}
 	}
 	var conversationType string
 	err = tx.QueryRow(ctx, "SELECT type FROM chat.conversations WHERE project_id=$1 AND id=$2 AND deleted_at IS NULL FOR UPDATE", a.ProjectID, conversation).Scan(&conversationType)
@@ -164,6 +183,11 @@ func (s *Store) Send(ctx context.Context, a identity.Actor, conversation string,
 	if err != nil {
 		return message.Sent{}, err
 	}
+	if p.ReplyTo != nil {
+		if err = requireFeature(ctx, tx, a.ProjectID, "allow_reply"); err != nil {
+			return message.Sent{}, err
+		}
+	}
 	var existing, version string
 	var fingerprint []byte
 	var dedupExpires time.Time
@@ -177,7 +201,7 @@ func (s *Store) Send(ctx context.Context, a identity.Actor, conversation string,
 			return message.Sent{}, message.ErrIdempotencyConflict
 		}
 		// A retry must not resurrect expired content even while its dedup receipt lives.
-		m, err := s.scan(a.ProjectID, tx.QueryRow(ctx, "SELECT "+columns+" FROM chat.messages m WHERE m.project_id=$1 AND m.id=$2 AND m.deleted_at IS NULL AND m.expires_at>clock_timestamp()", a.ProjectID, existing))
+		m, err := s.scan(a.ProjectID, tx.QueryRow(ctx, "SELECT "+columns+" FROM chat.messages m WHERE m.project_id=$1 AND m.id=$2", a.ProjectID, existing))
 		if err != nil {
 			return message.Sent{}, err
 		}
@@ -191,6 +215,18 @@ func (s *Store) Send(ctx context.Context, a identity.Actor, conversation string,
 	}
 	if existing != "" {
 		if _, err = tx.Exec(ctx, "DELETE FROM chat.message_idempotency WHERE project_id=$1 AND sender_id=$2 AND client_message_id=$3", a.ProjectID, a.User.ID, p.ClientID); err != nil {
+			return message.Sent{}, err
+		}
+	}
+	// Only a new send needs a live reply target. A matching retry still returns
+	// its committed result after the parent was deleted, without creating a copy.
+	if p.ReplyTo != nil {
+		var found string
+		err = tx.QueryRow(ctx, "SELECT id::text FROM chat.messages WHERE project_id=$1 AND conversation_id=$2 AND id=$3 AND deleted_at IS NULL AND expires_at>clock_timestamp()", a.ProjectID, conversation, *p.ReplyTo).Scan(&found)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return message.Sent{}, identity.ErrNotFound
+		}
+		if err != nil {
 			return message.Sent{}, err
 		}
 	}
@@ -214,8 +250,8 @@ func (s *Store) Send(ctx context.Context, a identity.Actor, conversation string,
 		return message.Sent{}, err
 	}
 	expires := time.Now().UTC().Add(time.Duration(retention) * 24 * time.Hour)
-	if _, err = tx.Exec(ctx, `INSERT INTO chat.messages(id,project_id,conversation_id,sender_id,type,encrypted_content,nonce,key_version,payload_version,sequence,expires_at)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, id.String(), a.ProjectID, conversation, a.User.ID, p.Type, envelope.Ciphertext, envelope.Nonce, envelope.KeyVersion, envelope.PayloadVersion, sequence, expires); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO chat.messages(id,project_id,conversation_id,sender_id,type,encrypted_content,nonce,key_version,payload_version,sequence,expires_at,reply_to_message_id)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, id.String(), a.ProjectID, conversation, a.User.ID, p.Type, envelope.Ciphertext, envelope.Nonce, envelope.KeyVersion, envelope.PayloadVersion, sequence, expires, p.ReplyTo); err != nil {
 		return message.Sent{}, err
 	}
 	if _, err = tx.Exec(ctx, "UPDATE chat.conversations SET last_message_id=$3 WHERE project_id=$1 AND id=$2", a.ProjectID, conversation, id.String()); err != nil {
@@ -254,7 +290,7 @@ func (s *Store) Get(ctx context.Context, a identity.Actor, id string) (message.M
 	}
 	defer tx.Rollback(ctx)
 	var conversation string
-	err = tx.QueryRow(ctx, "SELECT conversation_id::text FROM chat.messages WHERE project_id=$1 AND id=$2 AND deleted_at IS NULL AND expires_at>clock_timestamp()", a.ProjectID, id).Scan(&conversation)
+	err = tx.QueryRow(ctx, "SELECT conversation_id::text FROM chat.messages WHERE project_id=$1 AND id=$2", a.ProjectID, id).Scan(&conversation)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return message.Message{}, identity.ErrNotFound
 	}
@@ -264,15 +300,15 @@ func (s *Store) Get(ctx context.Context, a identity.Actor, id string) (message.M
 	if err = readAccess(ctx, tx, a, conversation); err != nil {
 		return message.Message{}, err
 	}
-	m, err := s.scan(a.ProjectID, tx.QueryRow(ctx, "SELECT "+columns+" FROM chat.messages m WHERE m.project_id=$1 AND m.id=$2 AND m.deleted_at IS NULL AND m.expires_at>clock_timestamp()", a.ProjectID, id))
+	m, err := s.scan(a.ProjectID, tx.QueryRow(ctx, "SELECT "+columns+" FROM chat.messages m WHERE m.project_id=$1 AND m.id=$2", a.ProjectID, id))
 	if err != nil {
 		return m, err
 	}
 	return m, tx.Commit(ctx)
 }
 
-// page is shared by history and blind search. SQL always excludes expired/deleted
-// rows; caller input supplies parameters, never SQL fragments.
+// page includes retained tombstones in history but only live matches in search.
+// Caller input supplies parameters, never SQL fragments.
 func (s *Store) page(ctx context.Context, a identity.Actor, conversation string, q message.Query, search map[string][]string) ([]message.Message, error) {
 	if err := q.Validate(); err != nil {
 		return nil, err
@@ -295,8 +331,9 @@ func (s *Store) page(ctx context.Context, a identity.Actor, conversation string,
 		direction, comparison = "ASC", ">"
 	}
 	args := []any{a.ProjectID, conversation, bound, q.Limit}
-	query := "SELECT " + columns + " FROM chat.messages m WHERE m.project_id=$1 AND m.conversation_id=$2 AND m.sequence" + comparison + "$3 AND m.deleted_at IS NULL AND m.expires_at>clock_timestamp()"
+	query := "SELECT " + columns + " FROM chat.messages m WHERE m.project_id=$1 AND m.conversation_id=$2 AND m.sequence" + comparison + "$3"
 	if search != nil {
+		query += " AND m.deleted_at IS NULL AND m.expires_at>clock_timestamp()"
 		query += " AND EXISTS(SELECT 1 FROM chat.message_search s WHERE s.project_id=m.project_id AND s.conversation_id=m.conversation_id AND s.message_id=m.id AND ("
 		parts := []string{}
 		for version, tokens := range search {

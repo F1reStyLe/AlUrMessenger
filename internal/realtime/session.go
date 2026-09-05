@@ -203,18 +203,36 @@ func (s *Session) write(ctx context.Context) {
 				} else if f.EventSequence != "" {
 					seq, _ := strconv.ParseInt(f.EventSequence, 10, 64)
 					replay, e := s.gateway.Recovery.Replay(bounded, s.actor, f.ConversationID, seq-1, 1)
-					if e != nil || len(replay.Events) != 1 {
+					// A leave can commit between the metadata check above and the
+					// authoritative replay read. Report revocation, not an outage,
+					// and discard all previously queued message content in this frame.
+					if errors.Is(e, identity.ErrNotFound) {
+						f = frame("subscription.revoked", "", f.ConversationID, map[string]any{"reason_code": errorCode(e)})
+					} else if errors.Is(e, message.ErrResync) {
+						f = frame("resync.required", "", f.ConversationID, map[string]any{"reason_code": errorCode(e)})
+					} else if e != nil || len(replay.Events) != 1 {
 						cancel()
 						c.stop(1013, "REPLAY_UNAVAILABLE")
 						continue
+					} else {
+						event := replay.Events[0]
+						f.Type = event.Type
+						f.Payload, _ = json.Marshal(event.Payload)
 					}
-					event := replay.Events[0]
-					f.Type = event.Type
-					f.Payload, _ = json.Marshal(event.Payload)
 				}
 			}
 			// Recompute ephemeral state at delivery as well: a queued presence
 			// frame must not reveal stale data after a privacy flag changed.
+			// A committed send/edit ack may wait behind other frames while another
+			// device deletes the message. Refresh its DTO before writing the socket.
+			if f.Type == "ack" && f.MessageReply != "" {
+				f, err = s.refreshMessageReply(bounded, f)
+				if err != nil {
+					cancel()
+					c.stop(1013, "MESSAGE_UNAVAILABLE")
+					continue
+				}
+			}
 			if f.Type == "presence.state" || f.PresenceReply {
 				var statuses []Status
 				if f.PresenceReply {
@@ -331,6 +349,25 @@ func (s *Session) command(ctx context.Context, f Frame) {
 			break
 		}
 		result, err = s.gateway.Messages.Send(ctx, s.actor, f.ConversationID, p)
+	case "message.edit":
+		var p struct {
+			MessageID string `json:"message_id"`
+			message.Edit
+		}
+		if decode(f.Payload, &p) != nil {
+			err = policy.ErrInvalid
+			break
+		}
+		result, err = s.gateway.Messages.Edit(ctx, s.actor, p.MessageID, f.ConversationID, p.Edit)
+	case "message.delete":
+		var p struct {
+			MessageID string `json:"message_id"`
+		}
+		if decode(f.Payload, &p) != nil {
+			err = policy.ErrInvalid
+			break
+		}
+		result, err = s.gateway.Messages.Delete(ctx, s.actor, p.MessageID, f.ConversationID)
 	case "message.read", "message.delivered":
 		var p struct {
 			Sequence *int64 `json:"sequence,string"`
@@ -377,10 +414,44 @@ func (s *Session) command(ctx context.Context, f Frame) {
 	}
 	reply := frame("ack", f.RequestID, f.ConversationID, result)
 	reply.PresenceReply = f.Type == "presence.watch"
+	if f.Type == "message.send" || f.Type == "message.edit" || f.Type == "message.delete" {
+		reply.MessageReply = f.Type
+	}
 	c.enqueue(reply)
 	if f.Type == "conversation.subscribe" {
 		s.replay(ctx, f.ConversationID, true)
 	}
+}
+
+// refreshMessageReply preserves receipt identity while replacing only its mutable
+// message state. A membership revocation must not leave the old ack body in flight.
+func (s *Session) refreshMessageReply(ctx context.Context, f Frame) (Frame, error) {
+	var sent message.Sent
+	var m message.Message
+	var err error
+	if f.MessageReply == "message.send" {
+		err = json.Unmarshal(f.Payload, &sent)
+		m = sent.Message
+	} else {
+		err = json.Unmarshal(f.Payload, &m)
+	}
+	if err != nil {
+		return Frame{}, err
+	}
+	m, err = s.gateway.Messages.Get(ctx, s.actor, m.ID)
+	if errors.Is(err, identity.ErrNotFound) {
+		return frame("subscription.revoked", "", f.ConversationID, map[string]any{"reason_code": errorCode(err)}), nil
+	}
+	if err != nil {
+		return Frame{}, err
+	}
+	if f.MessageReply == "message.send" {
+		sent.Message = m
+		f.Payload, err = json.Marshal(sent)
+	} else {
+		f.Payload, err = json.Marshal(m)
+	}
+	return f, err
 }
 
 // replay advances only contiguous committed events. Enqueue is not delivery: clients

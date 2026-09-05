@@ -55,15 +55,17 @@ func (w *Worker) One(ctx context.Context, project, conversation string) (bool, e
 	var id string
 	var data []byte
 	var attempts int
-	var due time.Time
-	err = tx.QueryRow(ctx, "SELECT event_id::text,envelope,attempts,next_attempt_at FROM chat.outbox_events WHERE project_id=$1 AND conversation_id=$2 AND published_at IS NULL ORDER BY sequence LIMIT 1 FOR UPDATE", project, conversation).Scan(&id, &data, &attempts, &due)
+	var ready bool
+	// Retry deadlines are written with the database clock. Evaluate them there as
+	// well: worker clock skew must neither skip backoff nor delay an eligible head.
+	err = tx.QueryRow(ctx, "SELECT event_id::text,envelope,attempts,next_attempt_at<=clock_timestamp() FROM chat.outbox_events WHERE project_id=$1 AND conversation_id=$2 AND published_at IS NULL ORDER BY sequence LIMIT 1 FOR UPDATE", project, conversation).Scan(&id, &data, &attempts, &ready)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	if due.After(time.Now()) {
+	if !ready {
 		return false, nil
 	}
 	publishCtx, stop := context.WithTimeout(ctx, 3*time.Second)

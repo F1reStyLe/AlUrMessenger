@@ -33,10 +33,14 @@ type Send struct {
 	Type     string         `json:"type"`
 	Content  Content        `json:"content"`
 	Metadata map[string]any `json:"metadata,omitempty"`
+	ReplyTo  *string        `json:"reply_to_message_id,omitempty"`
 }
 
 // Validate bounds both plaintext and metadata before crypto or database work.
 func (p Send) Validate(system bool) error {
+	if p.ReplyTo != nil && (system || !conversation.ValidID(*p.ReplyTo)) {
+		return policy.ErrInvalid
+	}
 	if !conversation.ValidID(p.ClientID) || (!system && p.Type != "TEXT") || (system && p.Type != "SYSTEM") || !utf8.ValidString(p.Content.Text) || len(p.Content.Text) > 16384 || strings.TrimSpace(p.Content.Text) == "" {
 		return policy.ErrInvalid
 	}
@@ -58,18 +62,43 @@ func (p Send) Canonical(conversationID string) ([]byte, error) {
 	}{conversationID, p})
 }
 
+// Reply is a same-conversation reference, never a copy of the original body.
+// Clients resolve it through authorized Get; deletion cannot leave a stale preview.
+type Reply struct {
+	MessageID string `json:"message_id"`
+}
+
+// Edit replaces text only. Metadata, reply target, sender and sequence are immutable.
+// Version is mandatory and represented as a decimal string for JavaScript clients.
+type Edit struct {
+	Content         Content `json:"content"`
+	ExpectedVersion int64   `json:"expected_version,string"`
+}
+
+func (p Edit) Validate() error {
+	if p.ExpectedVersion < 1 || !utf8.ValidString(p.Content.Text) || len(p.Content.Text) > 16384 || strings.TrimSpace(p.Content.Text) == "" {
+		return policy.ErrInvalid
+	}
+	return nil
+}
+
 // Message is decrypted only after current Project/membership authorization.
+// Tombstones omit all body fields and do not require an encryption key to read.
 type Message struct {
 	ID             string         `json:"id"`
 	ConversationID string         `json:"conversation_id"`
 	SenderID       string         `json:"sender_id"`
 	Type           string         `json:"type"`
-	Content        Content        `json:"content"`
-	Metadata       map[string]any `json:"metadata"`
+	Content        *Content       `json:"content,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
+	Reply          *Reply         `json:"reply,omitempty"`
+	Status         string         `json:"status"`
 	Sequence       int64          `json:"sequence,string"`
 	Version        int64          `json:"resource_version,string"`
 	CreatedAt      time.Time      `json:"created_at"`
 	ExpiresAt      time.Time      `json:"expires_at"`
+	EditedAt       *time.Time     `json:"edited_at,omitempty"`
+	DeletedAt      *time.Time     `json:"deleted_at,omitempty"`
 }
 
 // Sent is returned only after commit; the same result identity survives retries.
@@ -110,6 +139,8 @@ type Store interface {
 	Get(context.Context, identity.Actor, string) (Message, error)
 	History(context.Context, identity.Actor, string, Query) ([]Message, error)
 	Search(context.Context, identity.Actor, string, string, Query) ([]Message, error)
+	Edit(context.Context, identity.Actor, string, string, Edit) (Message, error)
+	Delete(context.Context, identity.Actor, string, string) (Message, error)
 }
 
 // Service is shared by REST and WebSocket; client transports cannot invoke SYSTEM.
@@ -138,12 +169,32 @@ func (s *Service) SendSystem(ctx context.Context, a identity.Actor, id string, p
 	return s.Store.Send(ctx, a, id, p, true)
 }
 
-// Get hides inaccessible, expired and foreign-Project messages as not found.
+// Get hides inaccessible/foreign messages; retained expired/deleted rows are tombstones.
 func (s *Service) Get(ctx context.Context, a identity.Actor, id string) (Message, error) {
 	if !conversation.ValidID(id) {
 		return Message{}, policy.ErrInvalid
 	}
 	return s.Store.Get(ctx, a, id)
+}
+
+// Edit uses an optional conversation scope: REST discovers it from the message,
+// whereas WS must match the envelope before any mutation can commit.
+func (s *Service) Edit(ctx context.Context, a identity.Actor, id, scope string, p Edit) (Message, error) {
+	if !conversation.ValidID(id) || (scope != "" && !conversation.ValidID(scope)) {
+		return Message{}, policy.ErrInvalid
+	}
+	if err := p.Validate(); err != nil {
+		return Message{}, err
+	}
+	return s.Store.Edit(ctx, a, id, scope, p)
+}
+
+// Delete is idempotent after current authorization and allow_delete checks.
+func (s *Service) Delete(ctx context.Context, a identity.Actor, id, scope string) (Message, error) {
+	if !conversation.ValidID(id) || (scope != "" && !conversation.ValidID(scope)) {
+		return Message{}, policy.ErrInvalid
+	}
+	return s.Store.Delete(ctx, a, id, scope)
 }
 
 // History returns authorized rows; transport reverses a backwards page for ASC display.

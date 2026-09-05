@@ -298,3 +298,39 @@ presence.state/typing.state snapshots. Presence watch до 100 IDs с текущ
 typing TTL 5s. UI заменяет состояние целиком, unavailable не равно offline. Redis connection
 lease 75s продлевается только после pong; last_seen flush каждые 30s, до 256 markers.
 Ограничения и точные поля отражены в docs/REALTIME.md; gRPC, bots и Phase 5–10 не реализованы.
+
+## D36 — Reply, optimistic edit и redaction (шаг 5.1)
+
+Нумерация локального Agents.md приведена к IMPLEMENTATION_PLAN.md: 5.1 содержит reply,
+edit/delete; reactions/pins — 5.2, forward — 5.3. Обязательные flags/транспорты/recovery
+для уже добавленных операций реализуются сразу, без ожидания итогового шага 5.4.
+
+Reply — same-conversation reference без копирования текста (D15, раздел 21 ТЗ).
+FK проверяет Project/conversation. После удаления источника самостоятельный ответ остаётся,
+но GET источника возвращает tombstone. Старые send fingerprints сохраняются; новое optional
+поле reply участвует в fingerprint. Matching retry не требует живого источника, но проверяет flag.
+
+Edit — только текущий автор с правом записи; expected_version обязателен, конфликт 409.
+Даже равный текст повышает version. Нельзя редактировать metadata/reply/TTL/sender/sequence
+или SYSTEM. User delete также author-only; отдельная moderation операция остаётся Phase 7.
+Delete физически очищает ciphertext и blind index, оставляя row/id/version для recovery.
+Повтор не добавляет событие/версию, но заново проверяет flags/membership/bans. Удаление
+возможно без ключа старого payload. Событие редактирования — message.updated по ТЗ.
+
+GET/history/snapshot/dedup теперь возвращают retained deleted/expired tombstones, как требует
+API_DESIGN; прежнее промежуточное исключение expired/404 в Phase 3 заменено. Поиск и новые
+reply используют только live rows. Физический purge и независимый dedup tombstone после него
+по-прежнему Phase 10. Уже выданный клиенту текст невозможно отозвать из его локальной памяти.
+
+Stored events/outbox/Kafka остаются reference-only. REST/WS replay читает current message
+в одном snapshot с event high watermark; старый created/updated получает текущий tombstone.
+WS writer заново гидратирует очередь и acknowledgements, чтобы не выдать устаревший body.
+Клиент заменяет DTO целиком по current resource_version; исторический reference version
+используется только как metadata события. Event sequence и message sequence не смешиваются.
+Равная версия expired tombstone возможна по времени TTL без mutation event; клиент учитывает
+expires_at/status, а delete всегда повышает version. Точные схемы — OpenAPI 0.10.0.
+
+Проверка 5.1 выявила зависимость outbox retry от расхождения часов PostgreSQL и worker:
+One сравнивал DB deadline с локальным time.Now(), хотя Batch и backoff использовали DB clock.
+Теперь One также проверяет next_attempt_at через clock_timestamp() в PostgreSQL. Это сохраняет
+единый источник времени для очереди и не меняет порядок событий, backoff или ack contract.

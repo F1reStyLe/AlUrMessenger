@@ -135,8 +135,8 @@ func (l *Limiter) Before(next http.Handler) http.Handler {
 			w.Header().Add("Vary", "Access-Control-Request-Method")
 			w.Header().Add("Vary", "Access-Control-Request-Headers")
 			method := r.Header.Get("Access-Control-Request-Method")
-			// Only the collection supports POST; PATCH is restricted to a single
-			// conversation segment, so future membership routes are not enabled here.
+			// Exact route shapes allow implemented mutations only; a message item
+			// must not accidentally enable future reaction/pin subroutes via CORS.
 			conversationItem := strings.HasPrefix(r.URL.Path, "/api/v1/conversations/") && strings.Count(r.URL.Path, "/") == 4
 			segments := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 			memberCollection := len(segments) == 5 && segments[0] == "api" && segments[1] == "v1" && segments[2] == "conversations" && segments[4] == "members"
@@ -145,6 +145,8 @@ func (l *Limiter) Before(next http.Handler) http.Handler {
 			allowed = allowed || (method == "POST" && memberCollection) || ((method == "PATCH" || method == "DELETE") && memberItem)
 			messageCollection := len(segments) == 5 && segments[0] == "api" && segments[1] == "v1" && segments[2] == "conversations" && (segments[4] == "messages" || segments[4] == "read" || segments[4] == "delivered")
 			allowed = allowed || (method == "POST" && messageCollection)
+			messageItem := len(segments) == 4 && segments[0] == "api" && segments[1] == "v1" && segments[2] == "messages"
+			allowed = allowed || (messageItem && (method == "PATCH" || method == "DELETE"))
 			for _, h := range strings.Split(r.Header.Get("Access-Control-Request-Headers"), ",") {
 				switch strings.ToLower(strings.TrimSpace(h)) {
 				case "", "authorization", "content-type", "x-request-id":

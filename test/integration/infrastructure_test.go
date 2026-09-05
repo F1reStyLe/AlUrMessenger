@@ -136,6 +136,7 @@ func TestInfrastructureLifecycle(t *testing.T) {
 	t.Run("local-roles", func(t *testing.T) { testLocalRoles(t, pg, migrator) })
 	t.Run("conversations", func(t *testing.T) { testConversations(t, pg, migrator, cfg.RedisURL) })
 	t.Run("messages", func(t *testing.T) { testMessages(t, pg, migrator) })
+	t.Run("message-features", func(t *testing.T) { testMessageFeatures(t, pg, migrator) })
 	adminCfg.AccessKey = "test-root"
 	adminCfg.SecretKey = os.Getenv("ALUR_TEST_MINIO_ADMIN")
 	admin, err := objectstore.Open(adminCfg, cfg.Timeout)
@@ -202,11 +203,15 @@ func TestInfrastructureLifecycle(t *testing.T) {
 	// Private object: авторизованный round-trip проходит, anonymous GET запрещён.
 	t.Run("event-routing", func(t *testing.T) { testEventRouting(t, clients, cfg) })
 	t.Run("realtime", func(t *testing.T) { testRealtime(t, clients, migrator) })
+	// Storage owns a fresh deadline: the Kafka budget must not expire while the
+	// independent realtime scenario exercises reconnect, expiry and Redis outages.
+	objectCtx, cancelObjects := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancelObjects()
 	key := "fixture/object.txt"
-	if _, err = clients.Storage.Client.PutObject(ctx, clients.Storage.Bucket, key, strings.NewReader("private"), 7, minio.PutObjectOptions{}); err != nil {
+	if _, err = clients.Storage.Client.PutObject(objectCtx, clients.Storage.Bucket, key, strings.NewReader("private"), 7, minio.PutObjectOptions{}); err != nil {
 		t.Fatal("private object write failed")
 	}
-	object, err := clients.Storage.Client.GetObject(ctx, clients.Storage.Bucket, key, minio.GetObjectOptions{})
+	object, err := clients.Storage.Client.GetObject(objectCtx, clients.Storage.Bucket, key, minio.GetObjectOptions{})
 	if err != nil {
 		t.Fatal("private object read failed")
 	}
@@ -215,7 +220,7 @@ func TestInfrastructureLifecycle(t *testing.T) {
 	if err != nil || string(data) != "private" {
 		t.Fatal("private object content mismatch")
 	}
-	request, _ := http.NewRequestWithContext(ctx, "GET", os.Getenv("MINIO_ENDPOINT")+"/"+clients.Storage.Bucket+"/"+key, nil)
+	request, _ := http.NewRequestWithContext(objectCtx, "GET", os.Getenv("MINIO_ENDPOINT")+"/"+clients.Storage.Bucket+"/"+key, nil)
 	res, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatal("anonymous access check failed")
@@ -225,7 +230,7 @@ func TestInfrastructureLifecycle(t *testing.T) {
 		t.Fatal("private object allows anonymous read")
 	}
 	// Runtime IAM запрещает изменение bucket policy, даже на безопасное пустое значение.
-	if err = clients.Storage.Client.SetBucketPolicy(ctx, clients.Storage.Bucket, ""); err == nil {
+	if err = clients.Storage.Client.SetBucketPolicy(objectCtx, clients.Storage.Bucket, ""); err == nil {
 		t.Fatal("runtime can change bucket policy")
 	}
 	var logs bytes.Buffer

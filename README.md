@@ -9,7 +9,8 @@ Phase 0 и **Phase 1 — Foundation (1.1–1.6)** завершены: API/worker
 Добавлены development Compose, Project/User, проверка JWT через внешний Auth, локальные роли и профили.
 Реализованы также **Phase 2–4**: [conversations/memberships](docs/CONVERSATIONS.md),
 [зашифрованные messages/search/outbox](docs/MESSAGES.md), [WebSocket/recovery/presence](docs/REALTIME.md).
-Phase 5–10, gRPC и frontend ещё не реализованы. [Identity API и seed](docs/IDENTITY.md).
+Добавлен **шаг 5.1**: reply references, edit с проверкой версии, soft delete и безопасный replay.
+Шаги 5.2–5.4, Phase 6–10, gRPC и frontend ещё не реализованы. [Identity API и seed](docs/IDENTITY.md).
 Добавлены [Project policies, CORS, Redis limits и audit](docs/POLICIES.md).
 Swagger UI доступен на `/docs/api`, спецификация — `/docs/api/openapi.json`.
 Readiness подтверждает готовность инфраструктуры, а не всего Chat API.

@@ -274,6 +274,119 @@ func testRealtime(t *testing.T, clients *infrastructure.Clients, op *pgx.Conn) {
 	if _, e := recovery.Replay(ctx, b, conv.ID, 999, 50); e != message.ErrResync {
 		t.Fatal("future replay cursor", e)
 	}
+	// Phase 5.1 shares optimistic edits, reply validation and soft delete between
+	// REST and both WS instances. Events hydrate current state rather than old text.
+	path := "/api/v1/messages/" + sent.Message.ID
+	request("PATCH", path, `{"content":{"text":"restedit"},"expected_version":"1"}`, 200)
+	changed := receive(bob, "message.updated")
+	var hydrated struct {
+		Message message.Message `json:"message"`
+	}
+	if json.Unmarshal(changed.Payload, &hydrated) != nil || hydrated.Message.Version != 2 || hydrated.Message.Content.Text != "restedit" {
+		t.Fatal("REST edit not hydrated over WS")
+	}
+	request("PATCH", path, `{"content":{"text":"stale"},"expected_version":"1"}`, 409)
+	request("PATCH", path, `{"content":{"text":"missing version"}}`, 400)
+	command(alice, "message.edit", map[string]any{"message_id": sent.Message.ID, "content": message.Content{Text: "wsedit"}, "expected_version": "2"})
+	changed = receive(alice, "ack")
+	var current message.Message
+	if json.Unmarshal(changed.Payload, &current) != nil || current.Version != 3 || current.Content.Text != "wsedit" {
+		t.Fatal("WS edit ack")
+	}
+	receive(bob, "message.updated")
+	command(alice, "message.edit", map[string]any{"message_id": sent.Message.ID, "content": message.Content{Text: "stale"}, "expected_version": "2"})
+	conflict := receive(alice, "error")
+	var commandError map[string]any
+	json.Unmarshal(conflict.Payload, &commandError)
+	if commandError["code"] != "VERSION_CONFLICT" {
+		t.Fatal("WS stale version", commandError)
+	}
+	// Envelope/resource mismatch is rejected before deletion, even for the author.
+	wrongScope := uuid.NewString()
+	if e := wsjson.Write(ctx, alice, map[string]any{"type": "message.delete", "request_id": uuid.NewString(), "conversation_id": wrongScope, "payload": map[string]string{"message_id": sent.Message.ID}}); e != nil {
+		t.Fatal(e)
+	}
+	wrongScopeReply := receive(alice, "error")
+	json.Unmarshal(wrongScopeReply.Payload, &commandError)
+	if commandError["code"] != "RESOURCE_NOT_FOUND" {
+		t.Fatal("WS mutation ignored envelope scope")
+	}
+	command(bob, "message.delete", map[string]string{"message_id": sent.Message.ID})
+	deniedAuthor := receive(bob, "error")
+	json.Unmarshal(deniedAuthor.Payload, &commandError)
+	if commandError["code"] != "FORBIDDEN" {
+		t.Fatal("WS deleted another author's message")
+	}
+	replyCommand := message.Send{ClientID: uuid.NewString(), Type: "TEXT", Content: message.Content{Text: "replybody"}, ReplyTo: &sent.Message.ID}
+	command(alice, "message.send", replyCommand)
+	replyAck := receive(alice, "ack")
+	var replied message.Sent
+	if json.Unmarshal(replyAck.Payload, &replied) != nil || replied.Message.Reply == nil || replied.Message.Reply.MessageID != sent.Message.ID {
+		t.Fatal("WS reply reference")
+	}
+	receive(bob, "message.created")
+	command(alice, "message.delete", map[string]string{"message_id": sent.Message.ID})
+	deleteAck := receive(alice, "ack")
+	current = message.Message{}
+	if e := json.Unmarshal(deleteAck.Payload, &current); e != nil {
+		t.Fatal(e)
+	}
+	assertTombstone(t, current, nil, "deleted")
+	removed := receive(bob, "message.deleted")
+	hydrated.Message = message.Message{}
+	if e := json.Unmarshal(removed.Payload, &hydrated); e != nil {
+		t.Fatal(e)
+	}
+	assertTombstone(t, hydrated.Message, nil, "deleted")
+	if e := json.Unmarshal(request("GET", path, "", 200), &current); e != nil {
+		t.Fatal(e)
+	}
+	assertTombstone(t, current, nil, "deleted")
+	data, _ = json.Marshal(send)
+	duplicate = message.Sent{}
+	if e := json.Unmarshal(request("POST", collection+"/messages", string(data), 200), &duplicate); e != nil {
+		t.Fatal(e)
+	}
+	assertTombstone(t, duplicate.Message, nil, "deleted")
+	// A live reply still resolves the parent's current tombstone, never a snapshot
+	// of the parent's former text. The reply's independent body remains available.
+	var liveReply message.Message
+	if e := json.Unmarshal(request("GET", "/api/v1/messages/"+replied.Message.ID, "", 200), &liveReply); e != nil || liveReply.Reply == nil || liveReply.Content.Text != "replybody" {
+		t.Fatal("reply after parent delete", e)
+	}
+	request("DELETE", "/api/v1/messages/"+replied.Message.ID, "", 200)
+	receive(bob, "message.deleted")
+	// Reconnecting from the beginning must hydrate even message.created as deleted.
+	fresh := dial(second, aToken)
+	command(fresh, "conversation.subscribe", map[string]string{"after_event_sequence": "0"})
+	receive(fresh, "ack")
+	oldCreated := receive(fresh, "message.created")
+	var redacted struct {
+		Message message.Message `json:"message"`
+	}
+	if e := json.Unmarshal(oldCreated.Payload, &redacted); e != nil {
+		t.Fatal(e)
+	}
+	assertTombstone(t, redacted.Message, nil, "deleted")
+	fresh.CloseNow()
+	// CORS permits the implemented item mutations, without enabling future subroutes.
+	url := "http" + strings.TrimSuffix(strings.TrimPrefix(first, "ws"), "/ws") + path
+	for _, method := range []string{"PATCH", "DELETE"} {
+		req, e := http.NewRequestWithContext(ctx, "OPTIONS", url, nil)
+		if e != nil {
+			t.Fatal(e)
+		}
+		req.Header.Set("Origin", "https://demo.test")
+		req.Header.Set("Access-Control-Request-Method", method)
+		res, e := client.Do(req)
+		if e != nil {
+			t.Fatal(e)
+		}
+		res.Body.Close()
+		if res.StatusCode != 204 {
+			t.Fatal("message CORS", res.StatusCode)
+		}
+	}
 	// A disabled flag hides peer receipts without creating a gap in the event sequence.
 	if _, err = op.Exec(ctx, "UPDATE chat.project_settings SET flags=jsonb_set(flags,'{read_receipts}','false') WHERE project_id=$1", project); err != nil {
 		t.Fatal(err)

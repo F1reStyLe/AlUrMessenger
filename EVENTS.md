@@ -1,11 +1,14 @@
 # Kafka, changefeed и webhooks
 
-События — versioned факты; source of truth — PostgreSQL. Phase 3–4 реализуют
+События — versioned факты; source of truth — PostgreSQL. Phase 3–4 и шаг 5.1 реализуют
 conversation/message/checkpoint events и consumer inbox; остальные события ниже — будущие фазы.
 Machine-readable [AsyncAPI](api/asyncapi/asyncapi.json) описывает действующий Kafka transport.
 HTTP-публикация `/docs/asyncapi` и `/docs/webhooks` будет добавлена с документацией интеграций.
 Текущие membership event types: conversation.members.added, conversation.member.updated,
-conversation.member.left. Outbox не включает message content; WS выдаёт reference frames.
+conversation.member.left. Шаг 5.1 добавляет message.updated и message.deleted. Outbox не включает message content.
+REST/WS replay дополняет message.created/updated/deleted полем payload.message с текущим
+авторизованным Message/tombstone. Историческая reference version сохраняется, а клиент
+применяет вложенный current resource_version: старый created не восстанавливает удалённый текст.
 
 ## Envelope v1
 

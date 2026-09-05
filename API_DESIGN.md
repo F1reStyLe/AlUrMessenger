@@ -134,12 +134,14 @@ conversation; новые arbitrary client IDs не влияют на uniqueness.
   "client_message_id": "01900000-0000-4000-8000-000000000002",
   "type": "TEXT",
   "content": {"text": "Привет"},
-  "reply_to_message_id": null,
+  "reply_to_message_id": "01900000-0000-4000-8000-000000000005",
   "attachment_ids": []
 }
 ```
 
 IMAGE принимает content.caption и один ready attachment в MVP. TEXT не принимает attachments.
+В реализованном шаге 5.1 MessageSend принимает TEXT/content/metadata и optional reply_to_message_id;
+ненужный reply_to_message_id следует опустить (null отклоняется). attachment_ids — будущая Phase 6.
 SYSTEM доступен только отдельному internal use case. Reply разрешён только в том же conversation
 и проверяется allow_reply. Forward — отдельный command в том же POST:
 

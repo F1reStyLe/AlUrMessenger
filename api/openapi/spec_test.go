@@ -115,7 +115,7 @@ func TestConversationMessageAndRecoveryRoutes(t *testing.T) {
 		"/api/v1/conversations/{id}/members":           {"get", "post", "options"},
 		"/api/v1/conversations/{id}/members/{user_id}": {"patch", "delete", "options"},
 		"/api/v1/conversations/{id}/messages":          {"get", "post", "options"},
-		"/api/v1/messages/{id}":                        {"get", "options"},
+		"/api/v1/messages/{id}":                        {"get", "patch", "delete", "options"},
 		"/api/v1/conversations/{id}/search":            {"get", "options"},
 		"/api/v1/conversations/{id}/events":            {"get", "options"},
 		"/api/v1/conversations/{id}/snapshot":          {"get", "options"},

@@ -3,7 +3,7 @@
   "info": {
     "title": "Universal Chat committed events",
     "version": "1.0.0",
-    "description": "Phase 3–4 reference-only Kafka events; WS client protocol is documented separately in docs/REALTIME.md."
+    "description": "Phase 3–5.1 reference-only Kafka events; authorized WS/REST hydration is documented separately in docs/REALTIME.md."
   },
   "defaultContentType": "application/json",
   "servers": {
@@ -49,7 +49,9 @@
                   "conversation.member.left",
                   "message.created",
                   "message.read",
-                  "message.delivered"
+                  "message.delivered",
+                  "message.updated",
+                  "message.deleted"
                 ]
               },
               "event_version": {
@@ -79,7 +81,7 @@
               },
               "payload": {
                 "type": "object",
-                "description": "References only. Peer read receipts become sync.advance with empty payload when read_receipts=false."
+                "description": "References only. message.updated/deleted carry message_id, message_sequence and resource_version as decimal strings. Current decrypted state is added only to authorized REST/WS replay, never to Kafka."
               }
             }
           }

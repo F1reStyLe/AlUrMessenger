@@ -18,6 +18,8 @@ func Failure(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, message.ErrResync):
 		httpserver.WriteError(w, r, 409, "RESYNC_REQUIRED", "Reload conversation snapshot before replay")
+	case errors.Is(err, policy.ErrConflict):
+		httpserver.WriteError(w, r, 409, "VERSION_CONFLICT", "Reload the current message version before editing")
 	case errors.Is(err, policy.ErrInvalid):
 		httpserver.WriteError(w, r, 400, "INVALID_REQUEST", "Invalid message request")
 	case errors.Is(err, policy.ErrForbidden):
@@ -124,8 +126,22 @@ func Register(server *httpserver.Server, s *message.Service, protect func(http.H
 		}
 		page(w, r, items, q, false)
 	})))
-	server.Handle("/api/v1/messages/{id}", protect(identityhttp.Methods("GET", func(w http.ResponseWriter, r *http.Request) {
-		m, err := s.Get(r.Context(), identityhttp.Actor(r.Context()), r.PathValue("id"))
+	server.Handle("/api/v1/messages/{id}", protect(identityhttp.Methods("GET, PATCH, DELETE", func(w http.ResponseWriter, r *http.Request) {
+		a, id := identityhttp.Actor(r.Context()), r.PathValue("id")
+		var m message.Message
+		var err error
+		switch r.Method {
+		case "PATCH":
+			var p message.Edit
+			if !httpserver.ReadPatchJSON(w, r, &p) {
+				return
+			}
+			m, err = s.Edit(r.Context(), a, id, "", p)
+		case "DELETE":
+			m, err = s.Delete(r.Context(), a, id, "")
+		default:
+			m, err = s.Get(r.Context(), a, id)
+		}
 		if err != nil {
 			Failure(w, r, err)
 			return

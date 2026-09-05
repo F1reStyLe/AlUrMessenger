@@ -68,6 +68,50 @@ func (s *Store) Replay(ctx context.Context, a identity.Actor, id string, after i
 	if result.Through < result.High && len(result.Events) < limit {
 		return result, message.ErrResync
 	}
+	// Durable storage stays reference-only. Hydrate each distinct message once
+	// from this authorized snapshot, including for its older created/updated events.
+	// This is current state, not a historical revision: deletion must never replay
+	// the former body. Keep the historical envelope/version for cursor identity.
+	ids := []string{}
+	for _, e := range result.Events {
+		if e.Type == "message.created" || e.Type == "message.updated" || e.Type == "message.deleted" {
+			messageID, ok := e.Payload["message_id"].(string)
+			if !ok || messageID == "" {
+				return result, message.ErrResync
+			}
+			ids = append(ids, messageID)
+		}
+	}
+	if len(ids) > 0 {
+		current := map[string]message.Message{}
+		rows, err = tx.Query(ctx, "SELECT "+columns+" FROM chat.messages m WHERE m.project_id=$1 AND m.conversation_id=$2 AND m.id=ANY($3::uuid[])", a.ProjectID, id, ids)
+		if err != nil {
+			return result, err
+		}
+		for rows.Next() {
+			m, e := s.scan(a.ProjectID, rows)
+			if e != nil {
+				rows.Close()
+				return result, e
+			}
+			current[m.ID] = m
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return result, err
+		}
+		for _, e := range result.Events {
+			if e.Type != "message.created" && e.Type != "message.updated" && e.Type != "message.deleted" {
+				continue
+			}
+			m, ok := current[e.Payload["message_id"].(string)]
+			if !ok {
+				return result, message.ErrResync
+			}
+			e.Payload["message"] = m
+		}
+	}
 	result.More = result.Through < result.High
 	return result, tx.Commit(ctx)
 }
@@ -97,7 +141,7 @@ func (s *Store) Snapshot(ctx context.Context, a identity.Actor, id string) (mess
 	k.Version = m.Version
 	m.Read, m.Delivered = k.Read, k.Delivered
 	c.MessageSequence, c.EventSequence = result.MessageSequence, result.EventSequence
-	rows, err := tx.Query(ctx, "SELECT "+columns+" FROM chat.messages m WHERE m.project_id=$1 AND m.conversation_id=$2 AND m.deleted_at IS NULL AND m.expires_at>clock_timestamp() ORDER BY m.sequence DESC LIMIT 50", a.ProjectID, id)
+	rows, err := tx.Query(ctx, "SELECT "+columns+" FROM chat.messages m WHERE m.project_id=$1 AND m.conversation_id=$2 ORDER BY m.sequence DESC LIMIT 50", a.ProjectID, id)
 	if err != nil {
 		return result, err
 	}

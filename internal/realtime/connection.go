@@ -33,7 +33,8 @@ type Frame struct {
 	Sequence       string          `json:"sequence,omitempty"`
 	Payload        json.RawMessage `json:"payload"`
 	// Server-only delivery policy, never accepted from JSON clients.
-	PresenceReply bool `json:"-"`
+	PresenceReply bool   `json:"-"`
+	MessageReply  string `json:"-"`
 }
 type closeRequest struct {
 	code   websocket.StatusCode
@@ -218,6 +219,8 @@ func errorCode(err error) string {
 		return "FEATURE_DISABLED"
 	case errors.Is(err, message.ErrIdempotencyConflict):
 		return "IDEMPOTENCY_CONFLICT"
+	case errors.Is(err, policy.ErrConflict):
+		return "VERSION_CONFLICT"
 	case errors.Is(err, message.ErrResync):
 		return "RESYNC_REQUIRED"
 	default:
