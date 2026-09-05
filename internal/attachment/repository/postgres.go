@@ -117,3 +117,53 @@ func (s *Store) Ready(ctx context.Context, actor identity.Actor, id string) (att
 	}
 	return result, tx.Commit(ctx)
 }
+
+// Get resolves authorization from current state rather than from an upload-time
+// capability. An unattached object is private to its uploader; once attached,
+// only a current member of the live message conversation may read it.
+func (s *Store) Get(ctx context.Context, actor identity.Actor, id string) (attachment.Authorized, error) {
+	tx, err := s.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		return attachment.Authorized{}, err
+	}
+	defer tx.Rollback(ctx)
+	var result attachment.Authorized
+	var uploader, status, objectStatus string
+	var expired bool
+	err = tx.QueryRow(ctx, `SELECT a.id::text,a.original_name,a.mime_type,a.size,a.width,a.height,a.status,a.created_at,a.expires_at,
+ a.uploader_id::text,a.expires_at<=clock_timestamp(),o.storage_key,o.status
+ FROM chat.attachments a JOIN chat.storage_objects o ON o.project_id=a.project_id AND o.id=a.object_id
+ JOIN chat.projects p ON p.id=a.project_id
+ WHERE a.project_id=$1 AND a.id=$2 AND p.status='active'
+ FOR SHARE OF a,o,p`, actor.ProjectID, id).Scan(&result.ID, &result.OriginalName, &result.MIME, &result.Size, &result.Width, &result.Height, &status, &result.CreatedAt, &result.ExpiresAt, &uploader, &expired, &result.StorageKey, &objectStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return attachment.Authorized{}, identity.ErrNotFound
+	}
+	if err != nil {
+		return attachment.Authorized{}, err
+	}
+	result.Status = status
+	if objectStatus != "ready" {
+		return attachment.Authorized{}, identity.ErrNotFound
+	}
+	if status == "ready" && !expired && uploader == actor.User.ID {
+		return result, tx.Commit(ctx)
+	}
+	if status != "attached" {
+		return attachment.Authorized{}, identity.ErrNotFound
+	}
+	var allowed bool
+	err = tx.QueryRow(ctx, `SELECT true FROM chat.message_attachments ma
+ JOIN chat.messages m ON m.project_id=ma.project_id AND m.conversation_id=ma.conversation_id AND m.id=ma.message_id
+ JOIN chat.conversation_members cm ON cm.project_id=ma.project_id AND cm.conversation_id=ma.conversation_id
+ WHERE ma.project_id=$1 AND ma.attachment_id=$2 AND cm.user_id=$3 AND cm.left_at IS NULL
+ AND m.deleted_at IS NULL AND m.expires_at>clock_timestamp()
+ FOR SHARE OF m,cm`, actor.ProjectID, id, actor.User.ID).Scan(&allowed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return attachment.Authorized{}, identity.ErrNotFound
+	}
+	if err != nil {
+		return attachment.Authorized{}, err
+	}
+	return result, tx.Commit(ctx)
+}

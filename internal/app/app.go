@@ -197,6 +197,11 @@ func run(ctx context.Context, service config.Service, output io.Writer) (exitCod
 		done := make(chan struct{})
 		routerDone := make(chan struct{})
 		presenceDone := make(chan struct{})
+		attachmentDone := make(chan struct{})
+		go func() {
+			defer close(attachmentDone)
+			(&attachmentrepo.Cleaner{DB: clients.Postgres, Blobs: clients.Storage, Logger: logger}).Run(background)
+		}()
 		go func() {
 			defer close(presenceDone)
 			(&realtime.Presence{DB: clients.Postgres, Redis: clients.Redis}).RunFlush(background)
@@ -206,7 +211,7 @@ func run(ctx context.Context, service config.Service, output io.Writer) (exitCod
 			defer close(done)
 			(&outbox.Worker{DB: clients.Postgres, Publisher: outbox.Kafka{Client: clients.Kafka}, Logger: logger}).Run(background)
 		}()
-		defer func() { cancel(); <-done; <-routerDone; <-presenceDone }()
+		defer func() { cancel(); <-done; <-routerDone; <-presenceDone; <-attachmentDone }()
 	}
 	logger.Info("service starting")
 	if err := server.Run(ctx, listener); err != nil {

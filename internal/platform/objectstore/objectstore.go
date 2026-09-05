@@ -6,8 +6,10 @@ import (
 	"crypto/tls"
 	"errors"
 	"io"
+	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -20,6 +22,7 @@ import (
 // при shutdown и не затрагивают глобальный http.DefaultTransport.
 type Store struct {
 	Client    *minio.Client
+	signer    *minio.Client
 	Bucket    string
 	region    string
 	transport *http.Transport
@@ -36,7 +39,16 @@ func Open(cfg config.Storage, timeout time.Duration) (*Store, error) {
 		transport.CloseIdleConnections()
 		return nil, errors.New("MINIO_CONFIG_INVALID")
 	}
-	return &Store{Client: client, Bucket: cfg.Bucket, region: cfg.Region, transport: transport}, nil
+	publicEndpoint, publicSecure := cfg.PublicEndpoint, cfg.PublicSecure
+	if publicEndpoint == "" {
+		publicEndpoint, publicSecure = cfg.Endpoint, cfg.Secure
+	}
+	signer, err := minio.New(publicEndpoint, &minio.Options{Creds: credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""), Secure: publicSecure, Region: cfg.Region, Transport: transport})
+	if err != nil {
+		transport.CloseIdleConnections()
+		return nil, errors.New("MINIO_PUBLIC_CONFIG_INVALID")
+	}
+	return &Store{Client: client, signer: signer, Bucket: cfg.Bucket, region: cfg.Region, transport: transport}, nil
 }
 
 // Check требует существующий bucket без bucket policy. Любая непустая policy
@@ -81,6 +93,28 @@ func (s *Store) Put(ctx context.Context, key string, body io.Reader, size int64,
 	result, err := s.Client.PutObject(ctx, s.Bucket, key, body, size, minio.PutObjectOptions{ContentType: contentType, DisableMultipart: size < 5<<20})
 	if err != nil || result.Size != size {
 		return errors.New("MINIO_PUT_FAILED")
+	}
+	return nil
+}
+
+// Presign creates a short read-only capability without contacting MinIO. The
+// original filename is encoded only into Content-Disposition response metadata.
+func (s *Store) Presign(ctx context.Context, key, filename string, ttl time.Duration) (string, error) {
+	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": filename})
+	params := make(url.Values)
+	params.Set("response-content-disposition", disposition)
+	signed, err := s.signer.PresignedGetObject(ctx, s.Bucket, key, ttl, params)
+	if err != nil {
+		return "", errors.New("MINIO_PRESIGN_FAILED")
+	}
+	return signed.String(), nil
+}
+
+// Delete is idempotent at the S3 boundary. PostgreSQL lifecycle state decides
+// whether deletion is permitted; this adapter never enumerates or derives keys.
+func (s *Store) Delete(ctx context.Context, key string) error {
+	if err := s.Client.RemoveObject(ctx, s.Bucket, key, minio.RemoveObjectOptions{}); err != nil {
+		return errors.New("MINIO_DELETE_FAILED")
 	}
 	return nil
 }

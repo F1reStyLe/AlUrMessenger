@@ -73,6 +73,27 @@ func TestForwardValidationAndFingerprint(t *testing.T) {
 	}
 }
 
+func TestImageCommandRequiresExactlyOneAttachment(t *testing.T) {
+	p := Send{ClientID: uuid.NewString(), Type: "IMAGE", Content: Content{Caption: "caption"}, AttachmentIDs: []string{uuid.NewString()}}
+	if err := p.Validate(false); err != nil {
+		t.Fatal(err)
+	}
+	canonical, _ := p.Canonical("conversation")
+	if !bytes.Contains(canonical, []byte(p.AttachmentIDs[0])) {
+		t.Fatal("attachment identity missing from dedup fingerprint")
+	}
+	for _, invalid := range []Send{
+		{ClientID: p.ClientID, Type: "IMAGE", Content: Content{Text: "text"}, AttachmentIDs: p.AttachmentIDs},
+		{ClientID: p.ClientID, Type: "IMAGE", Content: Content{Caption: "caption"}},
+		{ClientID: p.ClientID, Type: "IMAGE", AttachmentIDs: []string{"invalid"}},
+		{ClientID: p.ClientID, Type: "TEXT", Content: Content{Text: "text"}, AttachmentIDs: p.AttachmentIDs},
+	} {
+		if invalid.Validate(false) == nil {
+			t.Fatal("invalid IMAGE shape accepted", invalid)
+		}
+	}
+}
+
 // JSON must omit the body entirely for tombstones; an empty text object can be
 // mistaken for an edit and metadata/reply previews could disclose removed content.
 func TestTombstoneJSON(t *testing.T) {

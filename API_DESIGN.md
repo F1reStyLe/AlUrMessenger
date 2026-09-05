@@ -142,7 +142,8 @@ conversation; новые arbitrary client IDs не влияют на uniqueness.
 
 IMAGE принимает content.caption и один ready attachment в MVP. TEXT не принимает attachments.
 В реализованном шаге 5.1 MessageSend принимает TEXT/content/metadata и optional reply_to_message_id;
-ненужный reply_to_message_id следует опустить (null отклоняется). attachment_ids — будущая Phase 6.
+ненужный reply_to_message_id следует опустить (null отклоняется). Для IMAGE `attachment_ids`
+содержит ровно один собственный ready upload и фиксируется атомарно с message/outbox.
 SYSTEM доступен только отдельному internal use case. Reply разрешён только в том же conversation
 и проверяется allow_reply. Forward — отдельный command в том же POST:
 
@@ -158,7 +159,8 @@ SYSTEM доступен только отдельному internal use case. Rep
 payload и blind index, проверяет allow_forward, source read и target write в одном Project.
 Original sender snapshot содержит внутренний user id и безопасное историческое display_name;
 source conversation, metadata, reply/reactions/pin не копируются. Forward не меняется после edit,
-soft delete или физической очистки источника. IMAGE forward остаётся Phase 6, SYSTEM запрещён.
+soft delete или физической очистки источника. IMAGE forward создаёт отдельный logical attachment
+на immutable object; SYSTEM запрещён.
 
 Тот же client_message_id с другим fingerprint → 409 IDEMPOTENCY_CONFLICT, не новая отправка.
 Повтор не обходит текущие права доступа. После физической очистки message dedup tombstone до TTL
@@ -169,8 +171,8 @@ soft delete или физической очистки источника. IMAGE
 | Method/path | Request / response | Правила |
 | --- | --- | --- |
 | POST `/api/v1/attachments` | multipart image → Attachment ready | **Реализовано 6.1**: ровно один file; membership не требуется до attach; human/bot с allow_images, effective size/MIME/extension/magic/full decoder/container validation |
-| GET `/api/v1/attachments/{id}` | → safe metadata | Uploader пока unattached, иначе membership доступного message |
-| POST `/api/v1/attachments/{id}/download-url` | → url, expires_at | Read-authorized capability issuance; не доменная запись, допустима banned read-only |
+| GET `/api/v1/attachments/{id}` | → safe metadata | **Реализовано 6.2**: uploader пока unattached, иначе current membership доступного live message |
+| POST `/api/v1/attachments/{id}/download-url` | → url, expires_at | **Реализовано 6.2**: повторная authorization, private capability 60 секунд; допустима banned read-only |
 | POST `/api/v1/messages/{id}/reports` | reason, description → Report | Доступный message, незаблокированный human |
 | POST `/api/v1/users/{id}/reports` | reason, description, conversation_id? → Report | Тот же Project, незаблокированный human; target/reference проверяются |
 | GET `/api/v1/reports/{id}` | → own Report status | Reporter или admin; без внутренних review details для reporter |

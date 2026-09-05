@@ -5,9 +5,9 @@
 Commit/push — только по прямому требованию пользователя. Локальный журнал шагов ведётся в
 игнорируемом `Agents.md`; результаты фазы и инструкции запуска отражаются в versioned документации.
 
-Текущая реализация: Phase 0–5 и шаг 6.1. Проверенный private JPEG/PNG/WebP upload доступен.
-Следующий шаг — 6.2: attachment authorization, message association и short download URL.
-Остальная Phase 6 и Phase 7–10 ещё не реализованы.
+Текущая реализация: Phase 0–5 и шаги 6.1–6.2. Upload, IMAGE send/forward, current authorization,
+short download URL и recoverable cleanup реализованы. Следующий шаг — 6.3, полный audit и failure
+tests Phase 6. Phase 7–10 ещё не реализованы.
 Контракты и ограничения: docs/CONVERSATIONS.md, docs/MESSAGES.md, docs/REALTIME.md.
 
 ## Порядок работы и Definition of Done
@@ -136,10 +136,10 @@ backend flags/read-only bans и session expiry/revocation.
 Затрагиваются: attachments/storage objects, MinIO, cleanup job, messages, API/docs/tests.
 
 6.1 Backend streaming image upload, actual MIME/extension/decode/size/pixel limits, project override.
-6.2 Private storage, random namespaced keys, logical attachment/message relations, secure short URL.
-6.3 IMAGE send/forward, object reference lifecycle, sweeper для незавершённых uploads.
-6.4 Тесты invalid files, чужих upload/attachments, bounds/flags, source deletion после forward,
-storage outage и idempotent cleanup.
+6.2 Private storage, random namespaced keys, logical attachment/message relations, secure short URL;
+IMAGE send/forward, object reference lifecycle и sweeper для незавершённых uploads.
+6.3 Тесты invalid files, чужих upload/attachments, bounds/flags, source deletion после forward,
+storage outage и idempotent cleanup; docs/examples.
 
 Приёмка: изображение доступно только разрешённому reader; непроверенное/слишком большое не ready;
 MinIO private; потеря worker/повтор cleanup не уничтожает object с живыми references.

@@ -17,7 +17,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// forward creates a fully independent encrypted TEXT message. A per-Project
+// forward creates a fully independent encrypted TEXT or IMAGE message. IMAGE
+// metadata gets a new logical attachment while immutable object bytes are shared.
+// A per-Project
 // advisory lock serializes the only operation that spans two conversations,
 // preventing inverse source/target forwards from taking row locks in opposite
 // order. Ordinary single-conversation operations never wait for this lock.
@@ -97,10 +99,17 @@ func (s *Store) forward(ctx context.Context, a identity.Actor, target string, co
 	if source.Status != "active" || source.Content == nil {
 		return message.Sent{}, identity.ErrNotFound
 	}
-	// IMAGE copying requires attachment ownership/storage rules from Phase 6;
 	// SYSTEM messages are service output and cannot be impersonated by clients.
-	if source.Type != "TEXT" {
+	if source.Type != "TEXT" && source.Type != "IMAGE" {
 		return message.Sent{}, policy.ErrForbidden
+	}
+	if source.Type == "IMAGE" {
+		if err = requireFeature(ctx, tx, a.ProjectID, "allow_images"); err != nil {
+			return message.Sent{}, err
+		}
+		if len(source.Attachments) != 1 {
+			return message.Sent{}, identity.ErrNotFound
+		}
 	}
 	original := message.SenderSnapshot{}
 	if source.Forward != nil {
@@ -112,7 +121,11 @@ func (s *Store) forward(ctx context.Context, a identity.Actor, target string, co
 		}
 	}
 	forward := &message.Forward{MessageID: source.ID, OriginalSender: original}
-	searchVersion, tokens, err := s.Crypto.Index(a.ProjectID, source.Content.Text)
+	searchText := source.Content.Text
+	if source.Type == "IMAGE" {
+		searchText = source.Content.Caption
+	}
+	searchVersion, tokens, err := s.Crypto.Index(a.ProjectID, searchText)
 	if errors.Is(err, cryptography.ErrTokens) {
 		return message.Sent{}, policy.ErrInvalid
 	}
@@ -138,8 +151,37 @@ func (s *Store) forward(ctx context.Context, a identity.Actor, target string, co
 	}
 	expires := time.Now().UTC().Add(time.Duration(retention) * 24 * time.Hour)
 	if _, err = tx.Exec(ctx, `INSERT INTO chat.messages(id,project_id,conversation_id,sender_id,type,encrypted_content,nonce,key_version,payload_version,sequence,expires_at,forwarded_from_message_id)
- VALUES($1,$2,$3,$4,'TEXT',$5,$6,$7,$8,$9,$10,$11)`, id.String(), a.ProjectID, target, a.User.ID, envelope.Ciphertext, envelope.Nonce, envelope.KeyVersion, envelope.PayloadVersion, sequence, expires, source.ID); err != nil {
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, id.String(), a.ProjectID, target, a.User.ID, source.Type, envelope.Ciphertext, envelope.Nonce, envelope.KeyVersion, envelope.PayloadVersion, sequence, expires, source.ID); err != nil {
 		return message.Sent{}, err
+	}
+	if source.Type == "IMAGE" {
+		logicalID, e := uuid.NewV7()
+		if e != nil {
+			return message.Sent{}, e
+		}
+		// The source relation is locked through the live source message. Copying
+		// metadata makes later source deletion independent while retaining one
+		// reference-countable object for the retention job.
+		var objectID, originalName, mimeType string
+		var size int64
+		var width, height int
+		e = tx.QueryRow(ctx, `SELECT a.object_id::text,a.original_name,a.mime_type,a.size,a.width,a.height
+ FROM chat.message_attachments ma JOIN chat.attachments a ON a.project_id=ma.project_id AND a.id=ma.attachment_id
+ JOIN chat.storage_objects o ON o.project_id=a.project_id AND o.id=a.object_id
+ WHERE ma.project_id=$1 AND ma.message_id=$2 AND a.status='attached' AND o.status='ready' FOR SHARE OF a,o`, a.ProjectID, source.ID).Scan(&objectID, &originalName, &mimeType, &size, &width, &height)
+		if errors.Is(e, pgx.ErrNoRows) {
+			return message.Sent{}, identity.ErrNotFound
+		}
+		if e != nil {
+			return message.Sent{}, e
+		}
+		if _, e = tx.Exec(ctx, `INSERT INTO chat.attachments(id,project_id,uploader_id,object_id,original_name,mime_type,size,width,height,status,expires_at)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'attached',$10)`, logicalID.String(), a.ProjectID, a.User.ID, objectID, originalName, mimeType, size, width, height, expires); e != nil {
+			return message.Sent{}, e
+		}
+		if _, e = tx.Exec(ctx, "INSERT INTO chat.message_attachments(project_id,conversation_id,message_id,attachment_id) VALUES($1,$2,$3,$4)", a.ProjectID, target, id.String(), logicalID.String()); e != nil {
+			return message.Sent{}, e
+		}
 	}
 	if _, err = tx.Exec(ctx, "UPDATE chat.conversations SET last_message_id=$3 WHERE project_id=$1 AND id=$2", a.ProjectID, target, id.String()); err != nil {
 		return message.Sent{}, err
@@ -156,7 +198,7 @@ func (s *Store) forward(ctx context.Context, a identity.Actor, target string, co
 	if _, err = tx.Exec(ctx, "INSERT INTO chat.message_idempotency(project_id,sender_id,client_message_id,message_id,conversation_id,fingerprint,fingerprint_version,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", a.ProjectID, a.User.ID, command.ClientID, id.String(), target, fingerprint, fingerprintVersion, dedupExpires); err != nil {
 		return message.Sent{}, err
 	}
-	if _, err = eventrepo.Append(ctx, tx, a.ProjectID, target, "message.created", map[string]any{"message_id": id.String(), "message_sequence": fmt.Sprint(sequence), "resource_version": "1", "sender_id": a.User.ID, "type": "TEXT", "forwarded": true}); err != nil {
+	if _, err = eventrepo.Append(ctx, tx, a.ProjectID, target, "message.created", map[string]any{"message_id": id.String(), "message_sequence": fmt.Sprint(sequence), "resource_version": "1", "sender_id": a.User.ID, "type": source.Type, "forwarded": true}); err != nil {
 		return message.Sent{}, err
 	}
 	m, err := s.scan(a.ProjectID, tx.QueryRow(ctx, "SELECT "+columns+" FROM chat.messages m WHERE m.project_id=$1 AND m.id=$2", a.ProjectID, id.String()))

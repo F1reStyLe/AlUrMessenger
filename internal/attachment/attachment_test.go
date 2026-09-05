@@ -30,6 +30,10 @@ func (r *memoryRepository) Ready(_ context.Context, _ identity.Actor, id string)
 	p := r.prepared
 	return Attachment{ID: id, OriginalName: p.Name, MIME: p.MIME, Size: p.Size, Width: p.Width, Height: p.Height, Status: "ready"}, nil
 }
+func (r *memoryRepository) Get(_ context.Context, _ identity.Actor, id string) (Authorized, error) {
+	p := r.prepared
+	return Authorized{Attachment: Attachment{ID: id, OriginalName: p.Name, Status: "ready"}, StorageKey: p.StorageKey}, nil
+}
 
 type memoryBlobs struct{ data []byte }
 
@@ -39,6 +43,9 @@ func (b *memoryBlobs) Put(_ context.Context, key string, body io.Reader, size in
 		return ErrStorage
 	}
 	return nil
+}
+func (b *memoryBlobs) Presign(context.Context, string, string, time.Duration) (string, error) {
+	return "https://objects.test/signed", nil
 }
 
 func validPNG(t *testing.T, width, height int) []byte {
@@ -88,5 +95,19 @@ func TestUploadRejectsMismatchDamageAndBounds(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestAuthorizedMetadataAndOneMinuteDownload(t *testing.T) {
+	id := "01900000-0000-4000-8000-000000000010"
+	repo := &memoryRepository{prepared: &Prepared{Name: "safe.png", StorageKey: "project/p/attachments/o"}}
+	service := New(repo, &memoryBlobs{}, config.Upload{DecodeConcurrency: 1})
+	if _, err := service.Get(t.Context(), identity.Actor{}, "bad"); err == nil {
+		t.Fatal("invalid attachment id accepted")
+	}
+	before := time.Now().UTC()
+	download, err := service.Download(t.Context(), identity.Actor{}, id)
+	if err != nil || download.URL != "https://objects.test/signed" || download.ExpiresAt.Before(before.Add(59*time.Second)) || download.ExpiresAt.After(before.Add(61*time.Second)) {
+		t.Fatal(download, err)
 	}
 }

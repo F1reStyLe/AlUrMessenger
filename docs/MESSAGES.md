@@ -2,7 +2,7 @@
 
 REST: POST/GET `/api/v1/conversations/{id}/messages`, GET/PATCH/DELETE `/api/v1/messages/{id}`,
 GET `/api/v1/conversations/{id}/search`. Точные схемы и ошибки — в OpenAPI.
-Публичная отправка TEXT, внутренний SendSystem требует реальную identity kind=system.
+Публичная отправка TEXT/IMAGE, внутренний SendSystem требует реальную identity kind=system.
 IMAGE с attachment_id предусмотрен Phase 6; сейчас IMAGE отклоняется, загрузки ещё нет.
 GROUP/DIRECT: active member; CHANNEL: moderator. Баны запрещают запись, сохраняют чтение.
 После leave нет доступа ни к истории, ни к поиску. Project admin membership не обходит.
@@ -78,7 +78,7 @@ content, когда он отсутствует в tombstone. Event cursor и re
 
 Миграция 9 добавляет reply reference, edited_at и только необходимые UPDATE grants.
 Runtime по-прежнему не может менять sender/sequence/TTL, переписывать event log или физически
-удалять message. TEXT forward описан ниже; IMAGE — Phase 6.
+удалять message. TEXT/IMAGE forward описан ниже и использует независимый encrypted snapshot.
 
 ## Реакции и закрепления — 5.2
 
@@ -113,7 +113,7 @@ Snapshot.pins содержит все live message IDs, даже вне 50 recen
 заменяет Message целиком и добавляет/удаляет ID в pin collection по текущему message.pin/status,
 а не по историческому имени события. GET pins даёт watermark для согласования полной коллекции.
 
-## Пересылка TEXT — 5.3
+## Пересылка TEXT/IMAGE — 5.3/6.2
 
 Тот же REST POST и WS `message.send` принимают отдельную форму
 `{client_message_id,forwarded_from_message_id}`. Она не смешивается с type/content/metadata/reply,
@@ -122,7 +122,7 @@ Snapshot.pins содержит все live message IDs, даже вне 50 recen
 источник скрывается как 404. SYSTEM не пересылается, IMAGE будет реализован вместе с attachments.
 
 Target получает новый UUID/sequence/sender/TTL, новый AES-GCM nonce/AAD и собственный blind index.
-Encrypted payload содержит копию TEXT и `{message_id,original_sender:{id,display_name}}`.
+Encrypted payload содержит копию TEXT либо IMAGE caption и `{message_id,original_sender:{id,display_name}}`.
 При повторной пересылке сохраняется root original_sender, а message_id указывает на непосредственный
 source. Source conversation не выдаётся. Metadata, reply, reactions и pin не копируются.
 Изменение или удаление source не меняет forward; physical purge очищает только nullable FK header,

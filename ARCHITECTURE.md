@@ -15,8 +15,8 @@ transactional event log/outbox, Kafka→Redis router, WS/recovery/checkpoints/pr
 authorized recovery гидратирует актуальный Message, включая relations или terminal tombstone.
 Шаг 5.4 закрепляет единую flag/changefeed hydration матрицу Phase 5 без новой схемы.
 Точный текущий контракт: [Messages](docs/MESSAGES.md), [Realtime](docs/REALTIME.md).
-Возможности Phase 6–10 ниже остаются архитектурным планом.
-Шаг 6.1 вводит модуль attachment: HTTP только разбирает bounded multipart, application полностью
+Возможности Phase 7–10 ниже остаются архитектурным планом.
+Шаги 6.1–6.2 вводят модуль attachment: HTTP только разбирает bounded multipart, application полностью
 валидирует/декодирует image, PostgreSQL repository ведёт explicit lifecycle, objectstore adapter
 пишет private namespaced object. Контракт: [Attachments](docs/ATTACHMENTS.md).
 Основание: [ТЗ](docs/REQUIREMENTS.md), [решения](DECISIONS.md), [план](IMPLEMENTATION_PLAN.md).
@@ -135,7 +135,7 @@ Global ban запрещает доменные записи, сохраняя д
 3. Зарезервировать `(project_id, sender_id, client_message_id)` и сверить fingerprint повторного запроса.
 4. Заблокировать conversation/membership и нужные resources, проверить права, flags/blacklist,
    затем выделить следующий `message_sequence` и `event_sequence`.
-5. Сохранить encrypted message, search tokens, attachment relations, changefeed event и outbox.
+5. Сохранить encrypted message, search tokens, attachment relation/lifecycle, changefeed event и outbox одной transaction.
 6. Commit; только теперь вернуть SENT. При неизвестном результате commit клиент повторяет тот же ID.
 7. Worker публикует событие; API instances доставляют актуальное состояние разрешённым sessions.
 

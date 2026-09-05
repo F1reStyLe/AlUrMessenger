@@ -16,7 +16,7 @@ func infraEnvironment(t *testing.T) {
 		_ = os.Unsetenv(name + "_FILE")
 	}
 	for k, v := range map[string]string{"POSTGRES_URL": "postgres://runtime:unit-secret@127.0.0.1:5432/chat?sslmode=disable", "POSTGRES_MAX_CONNS": "2",
-		"REDIS_URL": "redis://:unit-secret@127.0.0.1:6379/0", "MINIO_ENDPOINT": "http://127.0.0.1:9000", "MINIO_REGION": "us-east-1",
+		"REDIS_URL": "redis://:unit-secret@127.0.0.1:6379/0", "MINIO_ENDPOINT": "http://127.0.0.1:9000", "MINIO_PUBLIC_ENDPOINT": "http://127.0.0.1:9000", "MINIO_REGION": "us-east-1",
 		"MINIO_BUCKET": "chat-attachments", "MINIO_ACCESS_KEY": "unit-key", "MINIO_SECRET_KEY": "unit-secret",
 		"KAFKA_BROKERS": "127.0.0.1:9092", "KAFKA_SECURITY_PROTOCOL": "PLAINTEXT", "INFRA_TIMEOUT": "1s"} {
 		t.Setenv(k, v)
@@ -33,6 +33,7 @@ func TestInfrastructureRejectsUnsafeSettings(t *testing.T) {
 		{"POSTGRES_MAX_CONNS", "0"}, {"REDIS_URL", "rediss://localhost/0?skip_verify=true"},
 		{"KAFKA_BROKERS", "localhost:70000"}, {"KAFKA_SECURITY_PROTOCOL", "SASL_PLAINTEXT"},
 		{"MINIO_ENDPOINT", "http://unit-secret@localhost:9000"}, {"MINIO_BUCKET", "public_bucket"},
+		{"MINIO_PUBLIC_ENDPOINT", "http://unit-secret@localhost:9000"},
 		{"MINIO_SECRET_KEY", ""}, {"INFRA_TIMEOUT", "0s"},
 	} {
 		t.Run(tc.key+"/"+tc.value, func(t *testing.T) {
@@ -59,6 +60,7 @@ func TestProductionRequiresTLSAndAuthentication(t *testing.T) {
 	t.Setenv("POSTGRES_URL", "postgres://runtime:unit-secret@localhost/db?sslmode=verify-full")
 	t.Setenv("REDIS_URL", "rediss://:unit-secret@localhost:6379/0")
 	t.Setenv("MINIO_ENDPOINT", "https://localhost:9000")
+	t.Setenv("MINIO_PUBLIC_ENDPOINT", "https://files.example.test")
 	t.Setenv("KAFKA_SECURITY_PROTOCOL", "SASL_SSL")
 	t.Setenv("KAFKA_USERNAME", "unit-user")
 	t.Setenv("KAFKA_PASSWORD", "unit-secret")

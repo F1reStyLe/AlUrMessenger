@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Universal Chat Service",
-    "version": "0.13.0",
-    "description": "Реализованный Foundation: infrastructure probes, access JWT внешнего Auth, Project-scoped профили, локальные роли user/admin, settings/feature flags и append-only audit. AUTH_MODE=remote: Chat проверяет JWT на каждом запросе через Auth GET /api/v1/users/me без положительного кеша; Auth подтверждает идентичность и действующую сессию. Login/refresh/logout выполняются в Auth, второй токен Chat не нужен. Project задаёт серверный AUTH_PROJECT_ID, роль читает Chat из своей БД; роли Auth/JWT не дают прав. После logout Auth старые access JWT получают Chat 401; недоступность Auth даёт 503 без fallback. Один Auth/Project на экземпляр API. Offline dev-rsa допустим только development/test, без отзыва внешних сессий. Swagger UI на /docs/api, ресурсы локальные. Conversations и memberships реализованы. Messages TEXT/SYSTEM, AES-GCM, blind search, sequence/dedup и transactional outbox реализованы. WebSocket/recovery/checkpoints/presence/typing реализованы. Phase 5 полностью реализована: reply, edit/delete, reactions/pins, независимый TEXT forward и единая flag/current-state hydration матрица. Phase 6–10 ещё не реализованы. Redis limits: 120/IP и 60/Project-user за 60s, fail closed 503. CORS — exact allowlist, без cookies. Application responses содержат X-Request-ID, no-store, nosniff; ошибки net/http до middleware могут иметь иной формат."
+    "version": "0.14.0",
+    "description": "Реализованы Foundation, Conversations, Messages, WebSocket и Phase 5. Phase 6 поддерживает валидированный private IMAGE upload, атомарное присоединение к IMAGE message, независимый IMAGE forward и авторизованные минутные download URLs. Redis limits: 120/IP и 60/Project-user за 60s, fail closed 503. CORS — exact allowlist, без cookies. Application responses содержат X-Request-ID, no-store, nosniff."
   },
   "servers": [
     {
@@ -3039,6 +3039,38 @@
         "tags": ["CORS"], "operationId": "preflightUploadAttachment", "summary": "CORS preflight for image upload", "security": [],
         "responses": {"204": {"description": "Preflight accepted"}, "403": {"description": "ORIGIN_FORBIDDEN", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}}
       }
+    },
+    "/api/v1/attachments/{id}": {
+      "get": {
+        "tags": ["Attachments"], "operationId": "getAttachment", "summary": "Get authorized attachment metadata", "security": [{"BearerAuth": []}],
+        "description": "Before attachment only the uploader may read a ready, unexpired upload. After attachment, authorization is derived exclusively from current membership in the live message conversation. Foreign Project, outsider, deleted and expired resources are hidden as 404; bans remain read-only.",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "responses": {
+          "200": {"description": "Authorized safe metadata; no storage key", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Attachment"}}}},
+          "400": {"description": "INVALID_REQUEST", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "401": {"description": "UNAUTHENTICATED", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "404": {"description": "RESOURCE_NOT_FOUND: absent, foreign Project or currently inaccessible", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "405": {"description": "Unsupported method; see Allow header", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      },
+      "options": {"tags": ["CORS"], "operationId": "preflightGetAttachment", "summary": "CORS preflight", "security": [], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}], "responses": {"204": {"description": "Preflight accepted"}, "403": {"$ref": "#/components/responses/PolicyForbidden"}}}
+    },
+    "/api/v1/attachments/{id}/download-url": {
+      "post": {
+        "tags": ["Attachments"], "operationId": "createAttachmentDownloadURL", "summary": "Issue a one-minute private download capability", "security": [{"BearerAuth": []}],
+        "description": "Rechecks the same current authorization as metadata immediately before signing. URL and storage key are never persisted or logged. The returned S3 capability expires in 60 seconds.",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "responses": {
+          "200": {"description": "Short-lived download URL", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AttachmentDownload"}}}},
+          "400": {"description": "INVALID_REQUEST", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "401": {"description": "UNAUTHENTICATED", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "404": {"description": "RESOURCE_NOT_FOUND", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "405": {"description": "Unsupported method; see Allow header", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "429": {"$ref": "#/components/responses/RateLimited"}, "500": {"$ref": "#/components/responses/InternalError"}, "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      },
+      "options": {"tags": ["CORS"], "operationId": "preflightAttachmentDownloadURL", "summary": "CORS preflight", "security": [], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}], "responses": {"204": {"description": "Preflight accepted"}, "403": {"$ref": "#/components/responses/PolicyForbidden"}}}
     },
     "/api/v1/conversations": {
       "get": {
@@ -10942,17 +10974,20 @@
       "MessageContent": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "text"
-        ],
         "properties": {
           "text": {
             "type": "string",
             "minLength": 1,
             "maxLength": 16384,
             "description": "Nonblank UTF-8 text, at most 16384 bytes and 2048 distinct indexed words."
-          }
-        }
+          },
+          "caption": {"type": "string", "maxLength": 4096, "description": "Optional IMAGE caption; absent/empty is allowed."}
+        },
+        "oneOf": [{"required": ["text"], "not": {"required": ["caption"]}}, {"required": ["caption"], "not": {"required": ["text"]}}, {"maxProperties": 0}]
+      },
+      "MessageTextContent": {
+        "type": "object", "additionalProperties": false, "required": ["text"],
+        "properties": {"text": {"type": "string", "minLength": 1, "maxLength": 16384, "description": "Nonblank UTF-8 text."}}
       },
       "AttachmentUpload": {
         "type": "object", "additionalProperties": false, "required": ["file"],
@@ -10968,15 +11003,22 @@
           "size": {"type": "integer", "format": "int64", "minimum": 1, "maximum": 52428800},
           "width": {"type": "integer", "minimum": 1, "maximum": 8192},
           "height": {"type": "integer", "minimum": 1, "maximum": 8192},
-          "status": {"type": "string", "const": "ready"},
+          "status": {"type": "string", "enum": ["ready", "attached"]},
           "created_at": {"type": "string", "format": "date-time"},
           "expires_at": {"type": "string", "format": "date-time", "description": "Unattached upload cleanup deadline; attachment in Phase 6.2 changes lifecycle."}
         }
+      },
+      "AttachmentDownload": {
+        "type": "object", "additionalProperties": false, "required": ["url", "expires_at"],
+        "properties": {"url": {"type": "string", "format": "uri"}, "expires_at": {"type": "string", "format": "date-time"}}
       },
       "MessageSend": {
         "oneOf": [
           {
             "$ref": "#/components/schemas/MessageTextSend"
+          },
+          {
+            "$ref": "#/components/schemas/MessageImageSend"
           },
           {
             "$ref": "#/components/schemas/MessageForwardSend"
@@ -10991,11 +11033,24 @@
         "properties": {
           "client_message_id": {"type": "string", "format": "uuid"},
           "type": {"type": "string", "const": "TEXT"},
-          "content": {"$ref": "#/components/schemas/MessageContent"},
+          "content": {"$ref": "#/components/schemas/MessageTextContent"},
           "metadata": {"type": "object", "additionalProperties": true, "description": "Encrypted JSON object, at most 8192 encoded bytes; omitted means {}."},
           "reply_to_message_id": {"type": "string", "format": "uuid", "description": "Optional live message in the same conversation. Requires allow_reply. Omit when unused; null is rejected."}
         },
         "example": {"client_message_id": "01900000-0000-4000-8000-000000000010", "type": "TEXT", "content": {"text": "Привет!"}, "metadata": {}}
+      },
+      "MessageImageSend": {
+        "type": "object", "additionalProperties": false,
+        "required": ["client_message_id", "type", "content", "attachment_ids"],
+        "properties": {
+          "client_message_id": {"type": "string", "format": "uuid"},
+          "type": {"type": "string", "const": "IMAGE"},
+          "content": {"type": "object", "additionalProperties": false, "properties": {"caption": {"type": "string", "maxLength": 4096}}},
+          "attachment_ids": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"type": "string", "format": "uuid"}, "description": "One own ready, unexpired upload; consumed atomically with message/outbox."},
+          "metadata": {"type": "object", "additionalProperties": true},
+          "reply_to_message_id": {"type": "string", "format": "uuid"}
+        },
+        "example": {"client_message_id": "01900000-0000-4000-8000-000000000010", "type": "IMAGE", "content": {"caption": "Diagram"}, "attachment_ids": ["01900000-0000-4000-8000-000000000020"]}
       },
       "MessageForwardSend": {
         "type": "object",
@@ -11003,7 +11058,7 @@
         "required": ["client_message_id", "forwarded_from_message_id"],
         "properties": {
           "client_message_id": {"type": "string", "format": "uuid"},
-          "forwarded_from_message_id": {"type": "string", "format": "uuid", "description": "Readable live TEXT message in the same Project; source and target conversations may differ."}
+          "forwarded_from_message_id": {"type": "string", "format": "uuid", "description": "Readable live TEXT or IMAGE message in the same Project; source and target conversations may differ."}
         },
         "example": {"client_message_id": "01900000-0000-4000-8000-000000000010", "forwarded_from_message_id": "01900000-0000-4000-8000-000000000004"}
       },
@@ -11038,7 +11093,8 @@
           "created_at",
           "expires_at",
           "status",
-          "reactions"
+          "reactions",
+          "attachments"
         ],
         "properties": {
           "id": {
@@ -11057,6 +11113,7 @@
             "type": "string",
             "enum": [
               "TEXT",
+              "IMAGE",
               "SYSTEM"
             ]
           },
@@ -11116,6 +11173,10 @@
           },
           "pin": {
             "$ref": "#/components/schemas/MessagePin"
+          },
+          "attachments": {
+            "type": "array", "maxItems": 1, "items": {"$ref": "#/components/schemas/Attachment"},
+            "description": "Exactly one item for active IMAGE; empty for TEXT/SYSTEM and tombstones. Storage keys and URLs are excluded."
           }
         },
         "description": "Authorized current state. Active rows have content; empty metadata may be omitted. Deleted/expired retained rows are tombstones with no content, metadata, reply or forward. Replace the whole client DTO, never merge an omitted body into an older version. Forward content and original_sender are immutable snapshots independent of source lifecycle; source conversation is never returned. Original target sender/sequence/TTL remain stable. Reactions and pin share resource_version; relation mutations also invalidate stale edit versions. Terminal messages have reactions=[] and no pin. Features gate writes; existing relation state remains readable.",
@@ -11431,7 +11492,7 @@
         ],
         "properties": {
           "content": {
-            "$ref": "#/components/schemas/MessageContent"
+            "$ref": "#/components/schemas/MessageTextContent"
           },
           "expected_version": {
             "type": "string",

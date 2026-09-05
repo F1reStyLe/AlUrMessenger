@@ -40,12 +40,14 @@ type Kafka struct {
 // Storage задаёт S3 endpoint и один private bucket. Ключи не включаются в URL.
 // Region указан явно, чтобы проверки не требовали автоматического определения региона.
 type Storage struct {
-	Endpoint  string
-	Secure    bool
-	Region    string
-	Bucket    string
-	AccessKey string
-	SecretKey string
+	Endpoint       string
+	Secure         bool
+	PublicEndpoint string
+	PublicSecure   bool
+	Region         string
+	Bucket         string
+	AccessKey      string
+	SecretKey      string
 }
 
 // secret поддерживает VALUE либо VALUE_FILE, но никогда оба. Из файла читается
@@ -135,6 +137,13 @@ func LoadStorage(environment string) (Storage, error) {
 	if !validPort(u.Port()) {
 		return Storage{}, errors.New("MINIO_ENDPOINT has an invalid port")
 	}
+	public, err := url.Parse(setting("MINIO_PUBLIC_ENDPOINT", u.String()))
+	if err != nil || public.Hostname() == "" || public.User != nil || public.Path != "" && public.Path != "/" || public.RawQuery != "" || public.Fragment != "" || public.Scheme != "http" && public.Scheme != "https" || environment == "production" && public.Scheme != "https" {
+		return Storage{}, errors.New("MINIO_PUBLIC_ENDPOINT must be an HTTP(S) origin; HTTPS is required in production")
+	}
+	if !validPort(public.Port()) {
+		return Storage{}, errors.New("MINIO_PUBLIC_ENDPOINT has an invalid port")
+	}
 	bucket := setting("MINIO_BUCKET", "chat-attachments")
 	if len(bucket) < 3 || len(bucket) > 63 || bucket[0] == '-' || bucket[len(bucket)-1] == '-' || net.ParseIP(bucket) != nil || strings.ContainsAny(bucket, "._") || strings.IndexFunc(bucket, func(r rune) bool { return r != '-' && (r < 'a' || r > 'z') && (r < '0' || r > '9') }) != -1 {
 		return Storage{}, errors.New("MINIO_BUCKET must contain 3-63 lowercase letters, digits or interior hyphens")
@@ -151,7 +160,7 @@ func LoadStorage(environment string) (Storage, error) {
 	if region == "" {
 		return Storage{}, errors.New("MINIO_REGION must not be empty")
 	}
-	return Storage{Endpoint: u.Host, Secure: u.Scheme == "https", Region: region, Bucket: bucket, AccessKey: access, SecretKey: key}, nil
+	return Storage{Endpoint: u.Host, Secure: u.Scheme == "https", PublicEndpoint: public.Host, PublicSecure: public.Scheme == "https", Region: region, Bucket: bucket, AccessKey: access, SecretKey: key}, nil
 }
 
 // LoadInfrastructure выполняется до bind. Каждая ошибка безопасна для startup log;

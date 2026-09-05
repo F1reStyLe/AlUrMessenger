@@ -127,6 +127,11 @@ pending-delete object. Signed URL выдаётся только после по�
 Content-Disposition безопасен, URL не пишется в log/referrer. Уже выданная ссылка действует до TTL:
 если нужен мгновенный отзыв, будущая версия использует backend-proxied download.
 
+Реализация 6.2 после attach полностью заменяет uploader access проверкой current membership живого
+message. Подпись использует отдельный `MINIO_PUBLIC_ENDPOINT` (HTTPS обязателен production), тогда
+как запись идёт через private internal endpoint. Cleanup получает exact Project-scoped key из БД,
+не перечисляет bucket и не выбирает object с attached reference.
+
 Retention/cleanup не удаляет object, пока существует живая message reference (включая forward).
 Worker повторяет delete по durable job; crash между DB/MinIO операциями не даёт доступа к чужому файлу.
 

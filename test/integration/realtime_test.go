@@ -277,6 +277,8 @@ func testRealtime(t *testing.T, clients *infrastructure.Clients, op *pgx.Conn) {
 		return data
 	}
 	collection := "/api/v1/conversations/" + conv.ID
+	request("GET", "/api/v1/attachments/"+uploaded.ID, "", 200)
+	request("POST", "/api/v1/attachments/"+uploaded.ID+"/download-url", "", 200)
 	data, _ := json.Marshal(send)
 	request("POST", collection+"/messages", string(data), 200)
 	request("GET", "/api/v1/messages/"+sent.Message.ID, "", 200)

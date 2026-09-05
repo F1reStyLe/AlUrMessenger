@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/F1reStyLe/AlUrMessenger/internal/attachment"
 	"github.com/F1reStyLe/AlUrMessenger/internal/auth"
 	"github.com/F1reStyLe/AlUrMessenger/internal/cryptography"
 	eventrepo "github.com/F1reStyLe/AlUrMessenger/internal/event/repository"
@@ -33,7 +34,10 @@ const columns = `m.id::text,m.conversation_id::text,m.sender_id::text,m.type,m.s
  COALESCE((SELECT jsonb_agg(r ORDER BY r.reaction) FROM
  (SELECT reaction,count(*)::text AS count FROM chat.message_reactions WHERE project_id=m.project_id AND conversation_id=m.conversation_id AND message_id=m.id GROUP BY reaction) r),'[]'::jsonb),
  (SELECT jsonb_build_object('message_id',p.message_id,'pinned_by',p.pinned_by,'created_at',p.created_at,'resource_version',m.resource_version::text)
- FROM chat.pinned_messages p WHERE p.project_id=m.project_id AND p.conversation_id=m.conversation_id AND p.message_id=m.id)`
+ FROM chat.pinned_messages p WHERE p.project_id=m.project_id AND p.conversation_id=m.conversation_id AND p.message_id=m.id),
+ COALESCE((SELECT jsonb_agg(jsonb_build_object('id',a.id,'original_name',a.original_name,'mime_type',a.mime_type,'size',a.size,'width',a.width,'height',a.height,'status',a.status,'created_at',a.created_at,'expires_at',a.expires_at) ORDER BY ma.position)
+ FROM chat.message_attachments ma JOIN chat.attachments a ON a.project_id=ma.project_id AND a.id=ma.attachment_id
+ WHERE ma.project_id=m.project_id AND ma.conversation_id=m.conversation_id AND ma.message_id=m.id),'[]'::jsonb)`
 
 // scan decrypts the exact row context. Corrupt/unknown key versions fail closed.
 func (s *Store) scan(project string, row pgx.Row) (message.Message, error) {
@@ -41,8 +45,8 @@ func (s *Store) scan(project string, row pgx.Row) (message.Message, error) {
 	var e cryptography.Envelope
 	var reply, forwarded *string
 	var expired bool
-	var reactions, pin []byte
-	err := row.Scan(&m.ID, &m.ConversationID, &m.SenderID, &m.Type, &m.Sequence, &m.Version, &m.CreatedAt, &m.ExpiresAt, &e.Ciphertext, &e.Nonce, &e.KeyVersion, &e.PayloadVersion, &reply, &forwarded, &m.EditedAt, &m.DeletedAt, &expired, &reactions, &pin)
+	var reactions, pin, attachments []byte
+	err := row.Scan(&m.ID, &m.ConversationID, &m.SenderID, &m.Type, &m.Sequence, &m.Version, &m.CreatedAt, &m.ExpiresAt, &e.Ciphertext, &e.Nonce, &e.KeyVersion, &e.PayloadVersion, &reply, &forwarded, &m.EditedAt, &m.DeletedAt, &expired, &reactions, &pin, &attachments)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return m, identity.ErrNotFound
 	}
@@ -53,6 +57,7 @@ func (s *Store) scan(project string, row pgx.Row) (message.Message, error) {
 	// is no longer a valid GCM envelope. DB time determines retention eligibility.
 	m.Status = "active"
 	m.Reactions = []message.Reaction{}
+	m.Attachments = []attachment.Attachment{}
 	if m.DeletedAt != nil {
 		m.Status = "deleted"
 		return m, nil
@@ -70,6 +75,9 @@ func (s *Store) scan(project string, row pgx.Row) (message.Message, error) {
 		if err = json.Unmarshal(pin, &m.Pin); err != nil {
 			return m, err
 		}
+	}
+	if err = json.Unmarshal(attachments, &m.Attachments); err != nil {
+		return m, err
 	}
 	plain, err := s.Crypto.Open(project, m.ConversationID, m.ID, e)
 	if err != nil {
@@ -200,7 +208,11 @@ func (s *Store) Send(ctx context.Context, a identity.Actor, conversation string,
 	if err != nil {
 		return message.Sent{}, policy.ErrInvalid
 	}
-	searchVersion, tokens, err := s.Crypto.Index(a.ProjectID, p.Content.Text)
+	searchText := p.Content.Text
+	if p.Type == "IMAGE" {
+		searchText = p.Content.Caption
+	}
+	searchVersion, tokens, err := s.Crypto.Index(a.ProjectID, searchText)
 	if errors.Is(err, cryptography.ErrTokens) {
 		return message.Sent{}, policy.ErrInvalid
 	}
@@ -218,6 +230,11 @@ func (s *Store) Send(ctx context.Context, a identity.Actor, conversation string,
 	}
 	if p.ReplyTo != nil {
 		if err = requireFeature(ctx, tx, a.ProjectID, "allow_reply"); err != nil {
+			return message.Sent{}, err
+		}
+	}
+	if p.Type == "IMAGE" {
+		if err = requireFeature(ctx, tx, a.ProjectID, "allow_images"); err != nil {
 			return message.Sent{}, err
 		}
 	}
@@ -248,6 +265,21 @@ func (s *Store) Send(ctx context.Context, a identity.Actor, conversation string,
 	}
 	if existing != "" {
 		if _, err = tx.Exec(ctx, "DELETE FROM chat.message_idempotency WHERE project_id=$1 AND sender_id=$2 AND client_message_id=$3", a.ProjectID, a.User.ID, p.ClientID); err != nil {
+			return message.Sent{}, err
+		}
+	}
+	// A new IMAGE consumes one ready logical attachment under the same
+	// transaction. This check intentionally follows the dedup receipt path: an
+	// exact retry observes the already-attached object instead of conflicting.
+	if p.Type == "IMAGE" {
+		var ready string
+		err = tx.QueryRow(ctx, `SELECT a.id::text FROM chat.attachments a JOIN chat.storage_objects o ON o.project_id=a.project_id AND o.id=a.object_id
+ WHERE a.project_id=$1 AND a.id=$2 AND a.uploader_id=$3 AND a.status='ready' AND a.expires_at>clock_timestamp() AND o.status='ready'
+ FOR UPDATE OF a,o`, a.ProjectID, p.AttachmentIDs[0], a.User.ID).Scan(&ready)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return message.Sent{}, identity.ErrNotFound
+		}
+		if err != nil {
 			return message.Sent{}, err
 		}
 	}
@@ -286,6 +318,14 @@ func (s *Store) Send(ctx context.Context, a identity.Actor, conversation string,
 	if _, err = tx.Exec(ctx, `INSERT INTO chat.messages(id,project_id,conversation_id,sender_id,type,encrypted_content,nonce,key_version,payload_version,sequence,expires_at,reply_to_message_id)
  VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, id.String(), a.ProjectID, conversation, a.User.ID, p.Type, envelope.Ciphertext, envelope.Nonce, envelope.KeyVersion, envelope.PayloadVersion, sequence, expires, p.ReplyTo); err != nil {
 		return message.Sent{}, err
+	}
+	if p.Type == "IMAGE" {
+		if _, err = tx.Exec(ctx, "INSERT INTO chat.message_attachments(project_id,conversation_id,message_id,attachment_id) VALUES($1,$2,$3,$4)", a.ProjectID, conversation, id.String(), p.AttachmentIDs[0]); err != nil {
+			return message.Sent{}, err
+		}
+		if _, err = tx.Exec(ctx, "UPDATE chat.attachments SET status='attached' WHERE project_id=$1 AND id=$2 AND status='ready'", a.ProjectID, p.AttachmentIDs[0]); err != nil {
+			return message.Sent{}, err
+		}
 	}
 	if _, err = tx.Exec(ctx, "UPDATE chat.conversations SET last_message_id=$3 WHERE project_id=$1 AND id=$2", a.ProjectID, conversation, id.String()); err != nil {
 		return message.Sent{}, err

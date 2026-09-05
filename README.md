@@ -11,9 +11,9 @@ Phase 0 и **Phase 1 — Foundation (1.1–1.6)** завершены: API/worker
 [зашифрованные messages/search/outbox](docs/MESSAGES.md), [WebSocket/recovery/presence](docs/REALTIME.md).
 Завершена **Phase 5**: reply, edit/delete, reactions, moderator pins, независимый TEXT forward,
 feature-flag matrix и безопасный replay текущего состояния.
-Остальная Phase 6, Phase 7–10, gRPC и frontend ещё не реализованы. [Identity API и seed](docs/IDENTITY.md).
-Шаг **6.1** добавляет [проверенный private image upload](docs/ATTACHMENTS.md); привязка к
-IMAGE messages и download authorization продолжаются в 6.2.
+Шаги **6.1–6.2** добавляют [проверенный private image upload, IMAGE messages/forward,
+авторизованную выдачу и crash-safe cleanup](docs/ATTACHMENTS.md). Следующий шаг — полный audit
+Phase 6 (6.3); Phase 7–10, gRPC и frontend ещё не реализованы.
 Добавлены [Project policies, CORS, Redis limits и audit](docs/POLICIES.md).
 Swagger UI доступен на `/docs/api`, спецификация — `/docs/api/openapi.json`.
 Readiness подтверждает готовность инфраструктуры, а не всего Chat API.
@@ -120,6 +120,7 @@ development/test/production. Неверные/пустые заданные зн
 | GLOBAL_MAX_UPLOAD_SIZE | 52428800; 1–52428800, верхняя граница project max_upload_size |
 | IMAGE_MAX_DIMENSION / IMAGE_MAX_PIXELS | 8192 / 16000000; server security ceilings |
 | IMAGE_DECODE_CONCURRENCY | 2; 1–16 одновременных полных decode |
+| MINIO_PUBLIC_ENDPOINT | Внешний HTTPS origin для минутных signed download URL; dev default совпадает с MINIO_ENDPOINT |
 | AUTH_MODE | remote по умолчанию; dev-rsa только development/test, без fallback |
 | AUTH_BASE_URL / AUTH_PROJECT_ID | Обязательны для remote; trusted Auth endpoint (HTTPS в production) и существующий Project UUID |
 | AUTH_PUBLIC_KEY_FILE | Только dev-rsa: RSA public PEM >=2048 bits; проверяется до bind |

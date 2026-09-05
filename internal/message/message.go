@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/F1reStyLe/AlUrMessenger/internal/attachment"
 	"github.com/F1reStyLe/AlUrMessenger/internal/conversation"
 	"github.com/F1reStyLe/AlUrMessenger/internal/cryptography"
 	"github.com/F1reStyLe/AlUrMessenger/internal/identity"
@@ -20,7 +21,8 @@ var ErrIdempotencyConflict = errors.New("IDEMPOTENCY_CONFLICT")
 
 // Content is encrypted together with metadata; it is not stored in search/outbox JSON.
 type Content struct {
-	Text string `json:"text"`
+	Text    string `json:"text,omitempty"`
+	Caption string `json:"caption,omitempty"`
 }
 type Payload struct {
 	Content  Content        `json:"content"`
@@ -30,15 +32,16 @@ type Payload struct {
 
 // Send includes no actor identity. HTTP only permits TEXT; SYSTEM is an internal command.
 type Send struct {
-	ClientID    string         `json:"client_message_id"`
-	Type        string         `json:"type,omitempty"`
-	Content     Content        `json:"content,omitempty"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
-	ReplyTo     *string        `json:"reply_to_message_id,omitempty"`
-	ForwardFrom *string        `json:"forwarded_from_message_id,omitempty"`
+	ClientID      string         `json:"client_message_id"`
+	Type          string         `json:"type,omitempty"`
+	Content       Content        `json:"content,omitempty"`
+	Metadata      map[string]any `json:"metadata,omitempty"`
+	ReplyTo       *string        `json:"reply_to_message_id,omitempty"`
+	AttachmentIDs []string       `json:"attachment_ids,omitempty"`
+	ForwardFrom   *string        `json:"forwarded_from_message_id,omitempty"`
 	// Presence flags make forward mutually exclusive even with explicit empty
 	// objects/strings. They are transport input facts and never enter JSON output.
-	hasType, hasContent, hasMetadata, hasReply bool
+	hasType, hasContent, hasMetadata, hasReply, hasAttachments bool
 }
 
 // MarshalJSON emits the same two disjoint wire shapes accepted by validation.
@@ -53,13 +56,14 @@ func (p Send) MarshalJSON() ([]byte, error) {
 		}{p.ClientID, *p.ForwardFrom})
 	}
 	type normal struct {
-		ClientID string         `json:"client_message_id"`
-		Type     string         `json:"type"`
-		Content  Content        `json:"content"`
-		Metadata map[string]any `json:"metadata,omitempty"`
-		ReplyTo  *string        `json:"reply_to_message_id,omitempty"`
+		ClientID      string         `json:"client_message_id"`
+		Type          string         `json:"type"`
+		Content       Content        `json:"content"`
+		Metadata      map[string]any `json:"metadata,omitempty"`
+		ReplyTo       *string        `json:"reply_to_message_id,omitempty"`
+		AttachmentIDs []string       `json:"attachment_ids,omitempty"`
 	}
-	return json.Marshal(normal{p.ClientID, p.Type, p.Content, p.Metadata, p.ReplyTo})
+	return json.Marshal(normal{p.ClientID, p.Type, p.Content, p.Metadata, p.ReplyTo, p.AttachmentIDs})
 }
 
 // UnmarshalJSON records which mutually exclusive command fields were present,
@@ -76,7 +80,7 @@ func (p *Send) UnmarshalJSON(data []byte) error {
 	}
 	for name := range fields {
 		switch name {
-		case "client_message_id", "type", "content", "metadata", "reply_to_message_id", "forwarded_from_message_id":
+		case "client_message_id", "type", "content", "metadata", "reply_to_message_id", "attachment_ids", "forwarded_from_message_id":
 		default:
 			return policy.ErrInvalid
 		}
@@ -86,13 +90,14 @@ func (p *Send) UnmarshalJSON(data []byte) error {
 	_, p.hasContent = fields["content"]
 	_, p.hasMetadata = fields["metadata"]
 	_, p.hasReply = fields["reply_to_message_id"]
+	_, p.hasAttachments = fields["attachment_ids"]
 	return nil
 }
 
 // Validate bounds both plaintext and metadata before crypto or database work.
 func (p Send) Validate(system bool) error {
 	if p.ForwardFrom != nil {
-		if system || !conversation.ValidID(p.ClientID) || !conversation.ValidID(*p.ForwardFrom) || p.hasType || p.hasContent || p.hasMetadata || p.hasReply || p.Type != "" || p.Content.Text != "" || p.Metadata != nil || p.ReplyTo != nil {
+		if system || !conversation.ValidID(p.ClientID) || !conversation.ValidID(*p.ForwardFrom) || p.hasType || p.hasContent || p.hasMetadata || p.hasReply || p.hasAttachments || p.Type != "" || p.Content.Text != "" || p.Content.Caption != "" || p.Metadata != nil || p.ReplyTo != nil || p.AttachmentIDs != nil {
 			return policy.ErrInvalid
 		}
 		return nil
@@ -100,8 +105,25 @@ func (p Send) Validate(system bool) error {
 	if p.ReplyTo != nil && (system || !conversation.ValidID(*p.ReplyTo)) {
 		return policy.ErrInvalid
 	}
-	if !conversation.ValidID(p.ClientID) || (!system && p.Type != "TEXT") || (system && p.Type != "SYSTEM") || !utf8.ValidString(p.Content.Text) || len(p.Content.Text) > 16384 || strings.TrimSpace(p.Content.Text) == "" {
+	if !conversation.ValidID(p.ClientID) || !utf8.ValidString(p.Content.Text) || !utf8.ValidString(p.Content.Caption) || len(p.Content.Text) > 16384 || len(p.Content.Caption) > 4096 {
 		return policy.ErrInvalid
+	}
+	if system && (p.Type != "SYSTEM" || strings.TrimSpace(p.Content.Text) == "" || p.Content.Caption != "" || len(p.AttachmentIDs) != 0) {
+		return policy.ErrInvalid
+	}
+	if !system {
+		switch p.Type {
+		case "TEXT":
+			if strings.TrimSpace(p.Content.Text) == "" || p.Content.Caption != "" || len(p.AttachmentIDs) != 0 {
+				return policy.ErrInvalid
+			}
+		case "IMAGE":
+			if p.Content.Text != "" || len(p.AttachmentIDs) != 1 || conversation.ValidID(p.AttachmentIDs[0]) == false {
+				return policy.ErrInvalid
+			}
+		default:
+			return policy.ErrInvalid
+		}
 	}
 	data, err := json.Marshal(p.Metadata)
 	if err != nil || len(data) > 8192 {
@@ -129,7 +151,8 @@ func (p Send) Canonical(conversationID string) ([]byte, error) {
 		Content        Content        `json:"content"`
 		Metadata       map[string]any `json:"metadata,omitempty"`
 		ReplyTo        *string        `json:"reply_to_message_id,omitempty"`
-	}{conversationID, p.ClientID, p.Type, p.Content, p.Metadata, p.ReplyTo})
+		AttachmentIDs  []string       `json:"attachment_ids,omitempty"`
+	}{conversationID, p.ClientID, p.Type, p.Content, p.Metadata, p.ReplyTo, p.AttachmentIDs})
 }
 
 // Reply is a same-conversation reference, never a copy of the original body.
@@ -169,23 +192,24 @@ func (p Edit) Validate() error {
 // Message is decrypted only after current Project/membership authorization.
 // Tombstones omit all body fields and do not require an encryption key to read.
 type Message struct {
-	ID             string         `json:"id"`
-	ConversationID string         `json:"conversation_id"`
-	SenderID       string         `json:"sender_id"`
-	Type           string         `json:"type"`
-	Content        *Content       `json:"content,omitempty"`
-	Metadata       map[string]any `json:"metadata,omitempty"`
-	Reply          *Reply         `json:"reply,omitempty"`
-	Forward        *Forward       `json:"forward,omitempty"`
-	Status         string         `json:"status"`
-	Sequence       int64          `json:"sequence,string"`
-	Version        int64          `json:"resource_version,string"`
-	CreatedAt      time.Time      `json:"created_at"`
-	ExpiresAt      time.Time      `json:"expires_at"`
-	EditedAt       *time.Time     `json:"edited_at,omitempty"`
-	DeletedAt      *time.Time     `json:"deleted_at,omitempty"`
-	Reactions      []Reaction     `json:"reactions"`
-	Pin            *Pin           `json:"pin,omitempty"`
+	ID             string                  `json:"id"`
+	ConversationID string                  `json:"conversation_id"`
+	SenderID       string                  `json:"sender_id"`
+	Type           string                  `json:"type"`
+	Content        *Content                `json:"content,omitempty"`
+	Metadata       map[string]any          `json:"metadata,omitempty"`
+	Reply          *Reply                  `json:"reply,omitempty"`
+	Forward        *Forward                `json:"forward,omitempty"`
+	Status         string                  `json:"status"`
+	Sequence       int64                   `json:"sequence,string"`
+	Version        int64                   `json:"resource_version,string"`
+	CreatedAt      time.Time               `json:"created_at"`
+	ExpiresAt      time.Time               `json:"expires_at"`
+	EditedAt       *time.Time              `json:"edited_at,omitempty"`
+	DeletedAt      *time.Time              `json:"deleted_at,omitempty"`
+	Reactions      []Reaction              `json:"reactions"`
+	Pin            *Pin                    `json:"pin,omitempty"`
+	Attachments    []attachment.Attachment `json:"attachments"`
 }
 
 // Sent is returned only after commit; the same result identity survives retries.

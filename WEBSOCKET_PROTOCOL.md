@@ -64,7 +64,7 @@ code/message/details/request_id. Ошибка не создаёт успешно
 | auth | access_token или bot_api_key (ровно один), device_id | auth.ok; только до auth |
 | conversation.subscribe | conversation_id, after_event_sequence? | ack + replay/sync.complete; active membership |
 | conversation.unsubscribe | conversation_id | ack; удаляет локальную подписку, не membership |
-| message.send | TEXT/reply или взаимоисключающий forward command из REST | ack.message содержит id/sequence/status=SENT после commit; client_message_id обязателен |
+| message.send | TEXT/reply, IMAGE с одним attachment_id или взаимоисключающий TEXT/IMAGE forward command из REST | ack.message содержит id/sequence/status=SENT после commit; client_message_id обязателен |
 | message.delivered | sequence | ack checkpoint; max(old,new), membership, explicit client receipt |
 | message.read | sequence | ack checkpoint, read_receipts; монотонный READ также обновляет delivered |
 | message.edit | message_id, content, expected_version | ack; автор, allow_edit; version conflict защищает от потерянного update |

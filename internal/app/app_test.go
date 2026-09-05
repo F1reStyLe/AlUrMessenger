@@ -25,7 +25,7 @@ func testEnvironment(t *testing.T) {
 		"HTTP_WRITE_TIMEOUT": "2s", "HTTP_IDLE_TIMEOUT": "1s", "HTTP_MAX_HEADER_BYTES": "32768", "HTTP_MAX_BODY_BYTES": "1024",
 		"POSTGRES_URL": "postgres://test:test@127.0.0.1:5432/test?sslmode=disable", "POSTGRES_MAX_CONNS": "2",
 		"REDIS_URL": "redis://127.0.0.1:6379/0", "KAFKA_BROKERS": "127.0.0.1:9092", "KAFKA_SECURITY_PROTOCOL": "PLAINTEXT",
-		"MINIO_ENDPOINT": "http://127.0.0.1:9000", "MINIO_BUCKET": "chat-attachments", "MINIO_REGION": "us-east-1",
+		"MINIO_ENDPOINT": "http://127.0.0.1:9000", "MINIO_PUBLIC_ENDPOINT": "http://127.0.0.1:9000", "MINIO_BUCKET": "chat-attachments", "MINIO_REGION": "us-east-1",
 		"MINIO_ACCESS_KEY": "unit-test", "MINIO_SECRET_KEY": "unit-test-secret", "INFRA_TIMEOUT": "1s",
 		"CORS_ALLOWED_ORIGINS": "", "RATE_IP_PER_MINUTE": "120", "RATE_USER_PER_MINUTE": "60",
 		"AUTH_MODE": "dev-rsa", "AUTH_BASE_URL": "", "AUTH_PROJECT_ID": "", "AUTH_PUBLIC_KEY_FILE": "",

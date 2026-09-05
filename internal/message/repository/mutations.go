@@ -84,6 +84,9 @@ func (s *Store) Edit(ctx context.Context, a identity.Actor, id, scope string, p 
 	if m.Status != "active" {
 		return message.Message{}, identity.ErrNotFound
 	}
+	if m.Type != "TEXT" {
+		return message.Message{}, policy.ErrForbidden
+	}
 	if m.Version != p.ExpectedVersion {
 		return message.Message{}, policy.ErrConflict
 	}
@@ -149,6 +152,16 @@ func (s *Store) Delete(ctx context.Context, a identity.Actor, id, scope string) 
 			if _, err = tx.Exec(ctx, "DELETE FROM chat."+table+" WHERE project_id=$1 AND conversation_id=$2 AND message_id=$3", a.ProjectID, conversation, id); err != nil {
 				return message.Message{}, err
 			}
+		}
+		// Logical attachment access ends with the source message. Shared object
+		// bytes remain ready while forwards reference their own logical rows; the
+		// retention reconciler later deletes an object only at reference count zero.
+		if _, err = tx.Exec(ctx, `UPDATE chat.attachments SET status='deleted' WHERE project_id=$1 AND id IN
+ (SELECT attachment_id FROM chat.message_attachments WHERE project_id=$1 AND conversation_id=$2 AND message_id=$3)`, a.ProjectID, conversation, id); err != nil {
+			return message.Message{}, err
+		}
+		if _, err = tx.Exec(ctx, "DELETE FROM chat.message_attachments WHERE project_id=$1 AND conversation_id=$2 AND message_id=$3", a.ProjectID, conversation, id); err != nil {
+			return message.Message{}, err
 		}
 		if _, err = tx.Exec(ctx, `UPDATE chat.messages SET encrypted_content=''::bytea,reply_to_message_id=NULL,
  deleted_at=clock_timestamp(),resource_version=resource_version+1 WHERE project_id=$1 AND id=$2`, a.ProjectID, id); err != nil {

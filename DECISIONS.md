@@ -429,4 +429,17 @@ JPEG EOI и WebP RIFF length обязаны завершать файл точн
 PostgreSQL сначала фиксирует storage_object/attachment со status=uploading, затем MinIO получает
 random `project/{project_id}/attachments/{object_uuid}`, после ack обе строки атомарно становятся
 ready. Это не распределённая transaction: crash/error оставляет видимый uploading row, который
-сверит sweeper 6.3. Невидимый orphan без Project/owner metadata не создаётся. Binary в БД отсутствует.
+сверит worker. Невидимый orphan без Project/owner metadata не создаётся. Binary в БД отсутствует.
+
+## D41 — Logical IMAGE attachment и current-state capability (шаг 6.2)
+
+Статус: принято. Новый IMAGE атомарно переводит ровно один собственный ready attachment в attached
+в transaction message/sequence/search/dedup/outbox. Matching retry сначала сверяет receipt и не
+пытается потребить attachment повторно. Forward создаёт новый logical attachment и encrypted
+caption/provenance, разделяя immutable object; поэтому source delete закрывает только source relation.
+
+Unattached metadata доступна uploader до expiry. После attach исключение uploader исчезает: GET и
+выдача минутного signed URL зависят от current membership живого message. Foreign/inaccessible state
+маскируется 404, ban сохраняет read-only. Backend и signer endpoints разделены, bucket остаётся private.
+Worker переводит stale upload/expired unattached object в durable pending_delete, выполняет
+идемпотентный delete и повторяет после crash; object с attached logical reference не выбирается.

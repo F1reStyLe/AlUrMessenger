@@ -67,14 +67,27 @@ type Prepared struct {
 	SHA256       [32]byte
 }
 
+// Authorized is internal data returned only after current access checks.
+type Authorized struct {
+	Attachment
+	StorageKey string `json:"-"`
+}
+
+type Download struct {
+	URL       string    `json:"url"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
 type Repository interface {
 	Limit(context.Context, identity.Actor, int64) (int64, error)
 	Begin(context.Context, identity.Actor, Prepared, int64) (Attachment, error)
 	Ready(context.Context, identity.Actor, string) (Attachment, error)
+	Get(context.Context, identity.Actor, string) (Authorized, error)
 }
 
 type BlobStore interface {
 	Put(context.Context, string, io.Reader, int64, string) error
+	Presign(context.Context, string, string, time.Duration) (string, error)
 }
 
 // Service bounds expensive decode work across concurrent requests.
@@ -179,6 +192,32 @@ func (s *Service) Upload(ctx context.Context, actor identity.Actor, in Input) (A
 		return Attachment{}, err
 	}
 	return attachment, nil
+}
+
+func (s *Service) Get(ctx context.Context, actor identity.Actor, id string) (Attachment, error) {
+	if uuid.Validate(id) != nil {
+		return Attachment{}, policy.ErrInvalid
+	}
+	result, err := s.Repository.Get(ctx, actor, id)
+	return result.Attachment, err
+}
+
+// Download reauthorizes every capability issuance. The URL is intentionally not
+// stored in PostgreSQL or logs and expires after one fixed minute.
+func (s *Service) Download(ctx context.Context, actor identity.Actor, id string) (Download, error) {
+	if uuid.Validate(id) != nil {
+		return Download{}, policy.ErrInvalid
+	}
+	item, err := s.Repository.Get(ctx, actor, id)
+	if err != nil {
+		return Download{}, err
+	}
+	const ttl = time.Minute
+	value, err := s.Blobs.Presign(ctx, item.StorageKey, item.OriginalName, ttl)
+	if err != nil {
+		return Download{}, ErrStorage
+	}
+	return Download{URL: value, ExpiresAt: time.Now().UTC().Add(ttl)}, nil
 }
 
 func safeName(value string) (string, string, error) {

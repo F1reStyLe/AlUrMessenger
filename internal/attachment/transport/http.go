@@ -90,4 +90,20 @@ func Register(server *httpserver.Server, service *attachment.Service, protect fu
 		w.Header().Set("Location", "/api/v1/attachments/"+result.ID)
 		httpserver.WriteJSON(w, r, http.StatusCreated, result)
 	})))
+	server.Handle("/api/v1/attachments/{id}", protect(identityhttp.Methods("GET", func(w http.ResponseWriter, r *http.Request) {
+		result, err := service.Get(r.Context(), identityhttp.Actor(r.Context()), r.PathValue("id"))
+		if err != nil {
+			failure(w, r, err)
+			return
+		}
+		httpserver.WriteJSON(w, r, http.StatusOK, result)
+	})))
+	server.Handle("/api/v1/attachments/{id}/download-url", protect(identityhttp.Methods("POST", func(w http.ResponseWriter, r *http.Request) {
+		result, err := service.Download(r.Context(), identityhttp.Actor(r.Context()), r.PathValue("id"))
+		if err != nil {
+			failure(w, r, err)
+			return
+		}
+		httpserver.WriteJSON(w, r, http.StatusOK, result)
+	})))
 }
